@@ -22,7 +22,6 @@ from rich.console import Console
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 KB_DIR = REPO_ROOT / "kb"
-PROJECTS_FILE = REPO_ROOT / "projects.yaml"
 CHROMA_DIR = REPO_ROOT / "chroma_db"
 COLLECTION_NAME = "knowledge_base"
 
@@ -76,9 +75,10 @@ def notes_dirs() -> list[Path]:
     Configured under ``notes_dirs`` in projects.yaml. These live outside this
     repo (and outside git) on purpose; we only read them at index time.
     """
-    if not PROJECTS_FILE.exists():
+    projects_file = REPO_ROOT / "projects.yaml"
+    if not projects_file.exists():
         return []
-    config = yaml.safe_load(PROJECTS_FILE.read_text(encoding="utf-8")) or {}
+    config = yaml.safe_load(projects_file.read_text(encoding="utf-8")) or {}
     return [Path(p) for p in config.get("notes_dirs", [])]
 
 
@@ -161,7 +161,10 @@ def main() -> None:
         pass  # Collection didn't exist yet — fine.
     collection = client.create_collection(COLLECTION_NAME)
 
-    collection.add(documents=documents, metadatas=metadatas, ids=ids)
+    # metadatas is a list[dict], which static checkers may not recognize as the
+    # exact Mapping type ChromaDB expects. At runtime this is fine; silence
+    # the type checker for this argument.
+    collection.add(documents=documents, metadatas=metadatas, ids=ids)  # type: ignore[arg-type]
 
     console.print(
         f"[bold green]Indexed[/bold green] {len(documents)} chunks "
