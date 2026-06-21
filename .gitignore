@@ -1,4 +1,5 @@
 chroma_db/
+tmp_chroma/
 __pycache__/
 *.pyc
 .env
