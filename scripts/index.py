@@ -33,8 +33,15 @@ console = Console()
 def chunk_markdown(text: str) -> list[str]:
     """Split Markdown into chunks, breaking on headings and capping size.
 
-    Each top-level/sub heading starts a new chunk; long sections are further
-    split on blank lines so no single chunk greatly exceeds MAX_CHUNK_CHARS.
+    Each heading starts a new chunk, and any section that grows past
+    MAX_CHUNK_CHARS is flushed into its own chunk so no single chunk greatly
+    exceeds the budget.
+
+    Args:
+        text: The full Markdown text of one KB file.
+
+    Returns:
+        The non-empty, stripped chunks in document order.
     """
     chunks: list[str] = []
     current: list[str] = []
@@ -62,7 +69,13 @@ def chunk_markdown(text: str) -> list[str]:
 
 
 def collect_documents() -> tuple[list[str], list[dict], list[str]]:
-    """Walk kb/ and return (documents, metadatas, ids) for every chunk."""
+    """Walk kb/ and build the parallel arrays ChromaDB's add() expects.
+
+    Returns:
+        A ``(documents, metadatas, ids)`` tuple of equal-length lists — one
+        entry per chunk. Each metadata dict carries ``source``, ``kind``, and
+        ``name``; each id is ``"{kind}/{name}#{i}"``.
+    """
     documents: list[str] = []
     metadatas: list[dict] = []
     ids: list[str] = []
@@ -85,6 +98,11 @@ def collect_documents() -> tuple[list[str], list[dict], list[str]]:
 
 
 def main() -> None:
+    """Rebuild the ChromaDB collection from every chunk under kb/.
+
+    Drops any existing collection first so renamed or deleted KB files don't
+    leave stale chunks behind, then prints a one-line summary.
+    """
     documents, metadatas, ids = collect_documents()
 
     if not documents:

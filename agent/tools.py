@@ -30,7 +30,12 @@ COLLECTION_NAME = "knowledge_base"
 
 
 def _get_collection():
-    """Open the persistent KB collection, or return None if not indexed yet."""
+    """Open the persistent KB collection.
+
+    Returns:
+        The ChromaDB collection, or None if the store directory doesn't exist
+        yet or the collection hasn't been created.
+    """
     if not CHROMA_DIR.exists():
         return None
     client = chromadb.PersistentClient(path=str(CHROMA_DIR))
@@ -41,7 +46,19 @@ def _get_collection():
 
 
 def search_kb(query: str, kind: str | None = None, n_results: int = 5) -> str:
-    """Semantic search over the KB. Optionally filter by kind ('projects'/'libraries')."""
+    """Semantically search the knowledge base for relevant chunks.
+
+    Args:
+        query: What to search for, in natural language.
+        kind: Optional filter — ``"projects"`` or ``"libraries"``. Any other
+            value (or None) searches both kinds.
+        n_results: Maximum number of chunks to return.
+
+    Returns:
+        Matching chunks joined by ``---`` separators, each prefixed with its
+        ``[source: ...]`` file — or a plain-language message if the index is
+        missing or nothing matched.
+    """
     collection = _get_collection()
     if collection is None:
         return "The knowledge base has not been indexed yet. Run scripts/index.py first."
@@ -61,7 +78,12 @@ def search_kb(query: str, kind: str | None = None, n_results: int = 5) -> str:
 
 
 def list_projects() -> str:
-    """List tracked projects (name + description) from projects.yaml."""
+    """List the projects tracked in projects.yaml.
+
+    Returns:
+        A bulleted "name: description" list of tracked projects, or a
+        plain-language message if projects.yaml is missing or empty.
+    """
     if not PROJECTS_FILE.exists():
         return "No projects.yaml found."
     config = yaml.safe_load(PROJECTS_FILE.read_text(encoding="utf-8")) or {}
@@ -76,10 +98,17 @@ CLASSIFIER_PROJECT = "defense-news-classifier"
 
 
 def _project_endpoint(name: str) -> str | None:
-    """Return the configured HTTP base URL for a named project, or None.
+    """Return the configured HTTP base URL for a named project.
 
     The endpoint lives in projects.yaml (not hardcoded here) so that adding or
     moving a callable service is a config change, not a code change.
+
+    Args:
+        name: The project name to look up, as it appears in projects.yaml.
+
+    Returns:
+        The project's configured ``endpoint`` base URL, or None if the project
+        isn't found or has no endpoint set.
     """
     if not PROJECTS_FILE.exists():
         return None
@@ -96,6 +125,15 @@ def classify_snippet(text: str) -> str:
     Routes to the running defense-news-classifier service over HTTP. The seam is
     deliberately HTTP, not a direct import, so the two projects stay decoupled —
     each has its own environment and release cycle.
+
+    Args:
+        text: The defense-news snippet to classify.
+
+    Returns:
+        The ``category`` and ``operational_domain`` labels plus a ``[source: ...]``
+        line on success. On any failure — no endpoint configured, service
+        unreachable, or a non-200 response — a plain-language message explaining
+        what went wrong (and how to start the service), rather than raising.
     """
     endpoint = _project_endpoint(CLASSIFIER_PROJECT)
     if not endpoint:
@@ -200,7 +238,17 @@ _DISPATCH = {
 
 
 def execute_tool(name: str, tool_input: dict) -> str:
-    """Run a tool by name with the model-provided input dict."""
+    """Run a tool by name with the model-provided input dict.
+
+    Args:
+        name: The tool name from the model's tool_use block.
+        tool_input: The tool's arguments, passed through as keyword arguments.
+
+    Returns:
+        The tool's string result, or an error message if the tool is unknown or
+        raised — errors are returned (not raised) so the model can read them and
+        adapt on the next turn.
+    """
     func = _DISPATCH.get(name)
     if func is None:
         return f"Error: unknown tool {name!r}."

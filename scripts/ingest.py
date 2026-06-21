@@ -46,6 +46,13 @@ def parse_dependencies(project_path: Path) -> list[str]:
     Prefers pyproject.toml ([project].dependencies); falls back to
     requirements.txt. Version specifiers, extras, and markers are stripped so
     "anthropic[mcp]>=0.40; python_version>='3.11'" becomes "anthropic".
+
+    Args:
+        project_path: Path to the project's root directory.
+
+    Returns:
+        Sorted, lower-cased package names, or an empty list if no manifest is
+        found.
     """
     raw: list[str] = []
 
@@ -71,7 +78,15 @@ def parse_dependencies(project_path: Path) -> list[str]:
 
 
 def read_readme(project_path: Path) -> str:
-    """Return the project's README text, or empty string if none found."""
+    """Return the project's README text, or empty string if none found.
+
+    Args:
+        project_path: Path to the project's root directory.
+
+    Returns:
+        The first matching README's text (.md/.rst/.txt/no-extension, in that
+        order), or an empty string if none exists.
+    """
     for candidate in ("README.md", "README.rst", "README.txt", "README"):
         readme = project_path / candidate
         if readme.exists():
@@ -86,7 +101,18 @@ def generate_project_stub(
     deps: list[str],
     readme: str,
 ) -> str:
-    """Ask the model to write a one-page project overview in Markdown."""
+    """Ask the model to write a one-page project overview in Markdown.
+
+    Args:
+        client: An initialized Anthropic client.
+        name: The project name.
+        description: The project's stated description from projects.yaml.
+        deps: Detected dependency package names.
+        readme: The project's README text (truncated when put in the prompt).
+
+    Returns:
+        The generated Markdown stub text.
+    """
     prompt = f"""Write a concise knowledge-base entry (Markdown) for a software project.
 
 Project name: {name}
@@ -117,7 +143,15 @@ Keep it factual. Do not invent features not implied by the inputs."""
 
 
 def generate_library_stub(client: anthropic.Anthropic, pkg: str) -> str:
-    """Ask the model to write a short explainer for a single library."""
+    """Ask the model to write a short explainer for a single library.
+
+    Args:
+        client: An initialized Anthropic client.
+        pkg: The library/package name to explain.
+
+    Returns:
+        The generated Markdown stub text.
+    """
     prompt = f"""Write a short knowledge-base entry (Markdown) for the Python library "{pkg}".
 
 Structure:
@@ -139,7 +173,16 @@ Be accurate. If you are unsure what "{pkg}" is, say so plainly rather than guess
 
 
 def write_stub(path: Path, content: str, force: bool) -> bool:
-    """Write content to path. Returns True if written, False if skipped."""
+    """Write content to path unless a file is already there.
+
+    Args:
+        path: Destination file path.
+        content: Markdown text to write (trailing whitespace is normalized).
+        force: When True, overwrite an existing file instead of skipping it.
+
+    Returns:
+        True if the file was written, False if it existed and was skipped.
+    """
     if path.exists() and not force:
         return False
     path.write_text(content.strip() + "\n", encoding="utf-8")
@@ -147,7 +190,17 @@ def write_stub(path: Path, content: str, force: bool) -> bool:
 
 
 def load_projects(only: str | None) -> list[dict]:
-    """Load project entries from projects.yaml, optionally filtered by name."""
+    """Load project entries from projects.yaml, optionally filtered by name.
+
+    Exits the process with an error if projects.yaml is missing or the
+    requested name isn't found.
+
+    Args:
+        only: A single project name to keep, or None to load all entries.
+
+    Returns:
+        The matching project entry dicts from projects.yaml.
+    """
     if not PROJECTS_FILE.exists():
         console.print(f"[red]Missing {PROJECTS_FILE}[/red]")
         sys.exit(1)
@@ -162,6 +215,11 @@ def load_projects(only: str | None) -> list[dict]:
 
 
 def main() -> None:
+    """Generate KB stubs for the projects named on the command line (or all).
+
+    Parses CLI args, then for each project writes a project overview plus one
+    library stub per dependency, skipping existing files unless --force is set.
+    """
     parser = argparse.ArgumentParser(description="Generate KB stubs from projects.")
     parser.add_argument("project", nargs="?", help="Only ingest this project by name.")
     parser.add_argument("--force", action="store_true", help="Overwrite existing stubs.")

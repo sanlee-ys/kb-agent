@@ -17,12 +17,20 @@ from agent.agent import KBAgent
 
 
 def respond(message: str, history: list[dict]) -> str:
-    """Answer one chat turn.
+    """Answer one chat turn for the Gradio ChatInterface.
 
     Gradio owns the conversation history (a list of {"role", "content"} dicts).
-    We rebuild a fresh KBAgent from that history each turn
-    and let it run its tool-use loop. The agent's prior *text* answers are
-    replayed as context; the per-turn tool calls don't need to be.
+    We rebuild a fresh KBAgent from that history each turn and let it run its
+    tool-use loop. The agent's prior *text* answers are replayed as context; the
+    per-turn tool calls don't need to be.
+
+    Args:
+        message: The newest user message to answer.
+        history: Prior turns as Gradio role/content dicts, used to seed the
+            agent's conversation context.
+
+    Returns:
+        The agent's text answer for this turn.
     """
     agent = KBAgent()
     agent.messages = [
