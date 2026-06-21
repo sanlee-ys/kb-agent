@@ -51,7 +51,19 @@ class KBAgent:
         self.messages: list[dict] = []
 
     def ask(self, user_message: str) -> str:
-        """Send a user message, run the tool-use loop, and return the answer."""
+        """Send a user message, run the tool-use loop, and return the answer.
+
+        Appends the message to the running history, then repeatedly calls the
+        model and executes any tools it requests until the model returns a final
+        (non-tool-use) answer or the iteration cap is reached.
+
+        Args:
+            user_message: The user's question or instruction for this turn.
+
+        Returns:
+            The model's final text answer, or a notice if it exceeded the
+            tool-call iteration cap without finishing.
+        """
         self.messages.append({"role": "user", "content": user_message})
 
         for _ in range(MAX_TOOL_ITERATIONS):
@@ -86,13 +98,25 @@ class KBAgent:
 
     @staticmethod
     def _final_text(response) -> str:
-        """Extract the text from a final (non-tool-use) response."""
+        """Extract the text from a final (non-tool-use) response.
+
+        Args:
+            response: The Anthropic Messages response whose content blocks to read.
+
+        Returns:
+            The concatenated text blocks, or a placeholder if the response
+            carried no text content.
+        """
         parts = [b.text for b in response.content if b.type == "text"]
         return "\n".join(parts).strip() or "(no answer)"
 
 
 def main() -> None:
-    """Minimal CLI loop for testing the agent."""
+    """Run a minimal interactive CLI chat loop against a fresh KBAgent.
+
+    Reads questions from stdin and prints answers until interrupted (Ctrl-C or
+    EOF). Intended for quick manual testing of the agent.
+    """
     agent = KBAgent()
     print("KB agent ready. Ask a question (Ctrl-C to quit).\n")
     try:
