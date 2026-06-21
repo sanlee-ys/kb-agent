@@ -28,7 +28,7 @@ MODEL = "claude-opus-4-8"
 MAX_TOOL_ITERATIONS = 10  # safety cap on the tool-use loop
 
 SYSTEM_PROMPT = """You are a knowledge-base assistant for a developer's personal \
-collection of projects and the libraries they use.
+collection of projects, the libraries they use, and plain-language concept notes.
 
 Answer questions using the search_kb and list_projects tools rather than your own \
 prior knowledge about the user's projects. When you state a fact that came from \

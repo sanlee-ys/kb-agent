@@ -7,3 +7,9 @@ projects:
     # not just searchable. Start this one with, from the classifier's directory:
     #   uv run --env-file .env uvicorn api:app --app-dir src
     endpoint: http://127.0.0.1:8000
+
+# Extra directories of hand-written Markdown notes to index alongside the
+# generated KB. These live outside this repo (and outside git) on purpose;
+# index.py reads them at index time and tags their chunks with kind: "notes".
+notes_dirs:
+  - C:\Users\sanle\OneDrive\Desktop\Claude Code Projects\learning-notes
