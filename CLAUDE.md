@@ -28,11 +28,14 @@ uv run python app.py                      # Gradio chat UI at http://127.0.0.1:7
 uv run python agent/agent.py              # CLI chat loop
 
 uv run python agent/tools.py              # manual smoke test of the tools
-uv run ruff check .                       # lint (only dev tooling configured; no tests)
+uv run pytest                             # run the test suite (offline; no API key needed)
+uv run ruff check .                       # lint
 ```
 
-There is no test suite and no CI. The two `__main__` blocks (`agent/tools.py`,
-`agent/agent.py`) double as smoke tests.
+Tests live in `tests/` (`test_tools.py`, `test_index.py`, `test_ingest.py`) and run
+offline — no API key, no network. `tests/test_tools.py` includes `_obs()`, a grader that
+asserts every tool result conforms to the SYS-003 observation shape. There is no CI yet.
+The `__main__` blocks (`agent/tools.py`, `agent/agent.py`) also double as smoke tests.
 
 ## Architecture
 
@@ -60,8 +63,11 @@ projects.yaml → ingest.py → kb/*.md → index.py → chroma_db/ → tools.se
    `/classify` endpoint over HTTP (base URL read from `projects.yaml`, not hardcoded),
    so the agent actually *drives* a tracked project rather than just describing it.
    Tool JSON schemas are hand-written in `TOOLS` and dispatched via
-   `_DISPATCH`/`execute_tool`. Errors are returned as strings back to the model rather
-   than raised, so it can adapt.
+   `_DISPATCH`/`execute_tool`. Every tool returns a **SYS-003 observation** — a JSON
+   string built via `_success`/`_problem`, with a `status` field
+   (`success`/`warning`/`error`), `payload`+`source` on success, and `next_actions`
+   (recovery guidance) on failure. Results are returned, not raised, so the model reads
+   them and adapts.
 4. **`agent/agent.py`** (`KBAgent`) is a **manual Anthropic tool-use loop** — not the
    SDK's tool runner. `ask()` appends the user message, calls the model with `TOOLS`,
    and while `stop_reason == "tool_use"` it executes the requested tools, feeds
@@ -85,5 +91,10 @@ projects.yaml → ingest.py → kb/*.md → index.py → chroma_db/ → tools.se
 - The agent's system prompt forbids answering from prior knowledge about the user's
   projects: answers must come from the tools and cite the `source` file. Preserve this
   grounding behavior when editing the prompt or tools.
+- **Tool results follow the SYS-003 observation contract** (`system/SYS-003` in the
+  architecture repo). Build every result via `_success`/`_problem` so the shape stays
+  consistent, and keep the system prompt's instruction to branch on `status` and follow
+  `next_actions`. New tools must conform — the `_obs()` grader in `tests/test_tools.py`
+  enforces it.
 - `projects.yaml` `path` values are absolute on the author's machine (Windows paths);
   `ingest.py` skips entries whose path doesn't exist.
