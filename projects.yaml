@@ -1,0 +1,4 @@
+projects:
+  - name: defense-news-classifier
+    path: C:\Users\sanle\OneDrive\Desktop\Claude Code Projects\defense-news-classifier
+    description: NLP pipeline for classifying defense-related news articles

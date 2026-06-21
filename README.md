@@ -1,0 +1,65 @@
+# kb-agent
+
+A personal, living knowledge base over your projects and the libraries you use —
+with an AI agent you can ask questions, answered with RAG + tool use.
+
+Point it at your project directories; it auto-generates Markdown stubs for each
+project and dependency, embeds them into a local vector store, and serves an
+agent that searches that KB to answer your questions.
+
+## How it works
+
+```
+projects.yaml ──▶ ingest.py ──▶ kb/*.md ──▶ index.py ──▶ ChromaDB (local)
+                  (Anthropic)   (you edit)   (local embeds)        │
+                                                                   ▼
+                                              agent.py ──▶ tools (search_kb, list_projects)
+                                              (Claude tool-use loop)
+```
+
+- **`scripts/ingest.py`** — reads each project's `pyproject.toml`/`requirements.txt`
+  + README and uses the Anthropic API to write KB stubs. Never overwrites existing
+  files (so your hand-annotations survive), unless you pass `--force`.
+- **`scripts/index.py`** — chunks `kb/*.md` and embeds them into a local ChromaDB
+  collection using the built-in `all-MiniLM-L6-v2` model (no API key, runs locally).
+- **`agent/tools.py`** — the `search_kb` (RAG) and `list_projects` tools.
+- **`agent/agent.py`** — a manual Claude tool-use loop: the model decides when to
+  search the KB and answers from what it finds.
+
+## Setup
+
+Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
+
+```bash
+uv sync
+```
+
+Set your Anthropic API key (copy the example and fill it in):
+
+```bash
+cp .env.example .env   # then edit .env and set ANTHROPIC_API_KEY
+```
+
+## Usage
+
+1. List the projects to track in `projects.yaml`, then generate KB stubs:
+
+   ```bash
+   uv run python scripts/ingest.py
+   ```
+
+2. Build the local vector index (downloads the embedding model on first run):
+
+   ```bash
+   uv run python scripts/index.py
+   ```
+
+3. Ask the agent questions:
+
+   ```bash
+   uv run python agent/agent.py
+   ```
+
+## Status
+
+v1 — CLI agent over a local KB. A Gradio chat UI is next.
