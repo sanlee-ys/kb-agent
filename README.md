@@ -54,7 +54,13 @@ cp .env.example .env   # then edit .env and set ANTHROPIC_API_KEY
    uv run python scripts/index.py
    ```
 
-3. Ask the agent questions:
+3. Ask the agent questions — either in the browser:
+
+   ```bash
+   uv run python app.py        # opens a Gradio chat UI at http://127.0.0.1:7860
+   ```
+
+   or in the terminal:
 
    ```bash
    uv run python agent/agent.py
@@ -62,4 +68,4 @@ cp .env.example .env   # then edit .env and set ANTHROPIC_API_KEY
 
 ## Status
 
-v1 — CLI agent over a local KB. A Gradio chat UI is next.
+v1 — local KB with a RAG/tool-use agent, available as a Gradio chat UI and a CLI.
