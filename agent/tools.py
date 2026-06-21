@@ -1,10 +1,13 @@
 """Tools the KB agent can call.
 
-Two tools for now, both fully local:
+Three tools:
 
   - search_kb(query, kind?, n_results?) — semantic search over the indexed
-    Markdown KB (ChromaDB).
-  - list_projects() — list the projects tracked in projects.yaml.
+    Markdown KB (ChromaDB). Local.
+  - list_projects() — list the projects tracked in projects.yaml. Local.
+  - classify_snippet(text) — classify a defense-news snippet by calling the
+    defense-news-classifier's HTTP service. This is the "ecosystem" seam: the
+    agent doesn't just *describe* a tracked project, it *drives* one over HTTP.
 
 Each tool is a plain Python function. The JSON schemas the model sees live in
 TOOLS, and execute_tool() dispatches a tool-use request to the right function.
@@ -17,6 +20,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import chromadb
+import httpx
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -68,6 +72,66 @@ def list_projects() -> str:
     return "Tracked projects:\n" + "\n".join(lines)
 
 
+CLASSIFIER_PROJECT = "defense-news-classifier"
+
+
+def _project_endpoint(name: str) -> str | None:
+    """Return the configured HTTP base URL for a named project, or None.
+
+    The endpoint lives in projects.yaml (not hardcoded here) so that adding or
+    moving a callable service is a config change, not a code change.
+    """
+    if not PROJECTS_FILE.exists():
+        return None
+    config = yaml.safe_load(PROJECTS_FILE.read_text(encoding="utf-8")) or {}
+    for project in config.get("projects", []):
+        if project.get("name") == name:
+            return project.get("endpoint")
+    return None
+
+
+def classify_snippet(text: str) -> str:
+    """Classify a defense-news snippet via the classifier's /classify endpoint.
+
+    Routes to the running defense-news-classifier service over HTTP. The seam is
+    deliberately HTTP, not a direct import, so the two projects stay decoupled —
+    each has its own environment and release cycle.
+    """
+    endpoint = _project_endpoint(CLASSIFIER_PROJECT)
+    if not endpoint:
+        return (
+            f"No endpoint is configured for {CLASSIFIER_PROJECT!r} in projects.yaml, "
+            "so it can't be called. Add an 'endpoint:' field to its entry."
+        )
+
+    url = endpoint.rstrip("/") + "/classify"
+    try:
+        # The endpoint makes an upstream LLM call, so allow a generous timeout.
+        response = httpx.post(url, json={"text": text}, timeout=30.0)
+    except httpx.ConnectError:
+        return (
+            f"The {CLASSIFIER_PROJECT} service isn't reachable at {endpoint}. "
+            "Start it from that project's directory with:\n"
+            "    uv run --env-file .env uvicorn api:app --app-dir src"
+        )
+    except httpx.HTTPError as exc:  # timeouts, malformed responses, etc.
+        return f"Error calling the {CLASSIFIER_PROJECT} service: {exc}"
+
+    if response.status_code != 200:
+        # Surface the service's own error detail so the model can relay it.
+        return (
+            f"The {CLASSIFIER_PROJECT} service returned HTTP {response.status_code}: "
+            f"{response.text}"
+        )
+
+    data = response.json()
+    return (
+        f"category: {data['category']}\n"
+        f"operational_domain: {data['operational_domain']}\n"
+        f"[source: {CLASSIFIER_PROJECT} service, {url}]"
+    )
+
+
 # JSON schemas exposed to the model. Descriptions are prescriptive about WHEN to
 # call each tool, which improves the model's tool-selection accuracy.
 TOOLS = [
@@ -106,12 +170,32 @@ TOOLS = [
         ),
         "input_schema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "classify_snippet",
+        "description": (
+            "Classify a short defense-news snippet into a category and an "
+            "operational domain by calling the defense-news-classifier service. "
+            "Call this when the user wants a news snippet actually labeled or "
+            "classified, not just described."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "description": "The defense-news snippet to classify.",
+                },
+            },
+            "required": ["text"],
+        },
+    },
 ]
 
 # Map tool name -> callable for dispatch.
 _DISPATCH = {
     "search_kb": search_kb,
     "list_projects": list_projects,
+    "classify_snippet": classify_snippet,
 }
 
 
@@ -131,3 +215,9 @@ if __name__ == "__main__":
     print(list_projects())
     print("\n---\n")
     print(search_kb("what is spaCy used for"))
+    print("\n---\n")
+    # If the classifier service isn't running, this prints the "start it with..."
+    # message rather than raising — that's the graceful-failure path working.
+    print(classify_snippet(
+        "The Pentagon awarded a $4.2B contract for 24 F-35 fighters."
+    ))
