@@ -53,11 +53,15 @@ projects.yaml → ingest.py → kb/*.md → index.py → chroma_db/ → tools.se
    no network**. The collection is dropped and rebuilt from scratch each run, so
    deleted/renamed KB files leave no stale chunks. Chunk metadata carries
    `source` (repo-relative path), `kind` (`projects`/`libraries`), and `name`.
-3. **`agent/tools.py`** exposes two local tools to the model: `search_kb(query, kind?,
+3. **`agent/tools.py`** exposes three tools to the model: `search_kb(query, kind?,
    n_results?)` (semantic query over ChromaDB, optional `kind` filter) and
-   `list_projects()` (reads `projects.yaml`). Tool JSON schemas are hand-written in
-   `TOOLS` and dispatched via `_DISPATCH`/`execute_tool`. Errors are returned as
-   strings back to the model rather than raised, so it can adapt.
+   `list_projects()` (reads `projects.yaml`) are both local; `classify_snippet(text)`
+   is the cross-repo seam — it POSTs to the `defense-news-classifier` service's
+   `/classify` endpoint over HTTP (base URL read from `projects.yaml`, not hardcoded),
+   so the agent actually *drives* a tracked project rather than just describing it.
+   Tool JSON schemas are hand-written in `TOOLS` and dispatched via
+   `_DISPATCH`/`execute_tool`. Errors are returned as strings back to the model rather
+   than raised, so it can adapt.
 4. **`agent/agent.py`** (`KBAgent`) is a **manual Anthropic tool-use loop** — not the
    SDK's tool runner. `ask()` appends the user message, calls the model with `TOOLS`,
    and while `stop_reason == "tool_use"` it executes the requested tools, feeds

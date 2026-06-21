@@ -37,7 +37,13 @@ plainly instead of guessing — do not invent project details.
 
 Beyond answering questions, you can also act: when the user wants a defense-news \
 snippet actually classified or labeled (not just described), call the \
-classify_snippet tool, which routes to the defense-news-classifier service."""
+classify_snippet tool, which routes to the defense-news-classifier service.
+
+Tool results are JSON observations with a "status" field ("success", "warning", \
+or "error"). On success, use the "payload" and cite the "source". On a "warning" \
+or "error", read "next_actions" and follow it — retry as instructed, or stop and \
+tell the user plainly when it says to. Never fabricate a result that a failed \
+tool did not return."""
 
 
 class KBAgent:
