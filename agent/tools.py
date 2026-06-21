@@ -13,10 +13,26 @@ Each tool is a plain Python function. The JSON schemas the model sees live in
 TOOLS, and execute_tool() dispatches a tool-use request to the right function.
 Keeping schemas explicit (rather than auto-generated) makes the tool-use loop in
 agent.py easy to follow and doesn't depend on the SDK's beta tool runner.
+
+Observation contract (architecture/SYS-003)
+--------------------------------------------
+Every tool returns a JSON string with a consistent shape, so the model can act on
+a result by reading fields instead of parsing prose, and so deterministic graders
+can check it:
+
+    success -> {"status": "success", "summary": str, "payload": ..., "source": ...}
+    problem -> {"status": "warning"|"error", "summary": str, "next_actions": [str]}
+
+JSON (not labeled text) is the wire format because the acceptance gate leans on
+cheap deterministic graders — ``json.loads`` + key asserts — and the model reads
+it reliably. Success payloads stay lean; recovery guidance (``next_actions``) is
+reserved for the warning/error paths where it earns its tokens. Always build
+results via ``_success()`` / ``_problem()`` so the shape lives in one place.
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import chromadb
@@ -27,6 +43,41 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PROJECTS_FILE = REPO_ROOT / "projects.yaml"
 CHROMA_DIR = REPO_ROOT / "chroma_db"
 COLLECTION_NAME = "knowledge_base"
+
+
+def _success(summary: str, payload, source) -> str:
+    """Build a success observation conforming to the SYS-003 tool-layer contract.
+
+    Args:
+        summary: One-line description of what happened.
+        payload: The actual result (chunks, labels, project list, ...).
+        source: Provenance the model can cite — a path, URL, or list of them.
+
+    Returns:
+        A JSON string with ``status="success"`` plus ``summary``/``payload``/``source``.
+    """
+    return json.dumps(
+        {"status": "success", "summary": summary, "payload": payload, "source": source},
+        ensure_ascii=False,
+    )
+
+
+def _problem(status: str, summary: str, next_actions: list[str]) -> str:
+    """Build a warning/error observation carrying recovery guidance (SYS-003).
+
+    Args:
+        status: ``"warning"`` (recoverable / empty result) or ``"error"`` (failed).
+        summary: One-line root-cause description.
+        next_actions: Concrete follow-ups — remediation steps and, where looping
+            is a risk, an explicit stop condition.
+
+    Returns:
+        A JSON string with ``status``/``summary``/``next_actions``.
+    """
+    return json.dumps(
+        {"status": status, "summary": summary, "next_actions": next_actions},
+        ensure_ascii=False,
+    )
 
 
 def _get_collection():
@@ -55,13 +106,17 @@ def search_kb(query: str, kind: str | None = None, n_results: int = 5) -> str:
         n_results: Maximum number of chunks to return.
 
     Returns:
-        Matching chunks joined by ``---`` separators, each prefixed with its
-        ``[source: ...]`` file — or a plain-language message if the index is
-        missing or nothing matched.
+        A SYS-003 observation (JSON string). On success, ``payload`` is a list of
+        ``{"source", "text"}`` chunks and ``source`` lists their files. On the
+        not-indexed or no-match paths, a warning/error with recovery guidance.
     """
     collection = _get_collection()
     if collection is None:
-        return "The knowledge base has not been indexed yet. Run scripts/index.py first."
+        return _problem(
+            "error",
+            "The knowledge base has not been indexed yet.",
+            ["Run scripts/index.py to build the index, then retry this search."],
+        )
 
     where = {"kind": kind} if kind in ("projects", "libraries", "notes") else None
     results = collection.query(query_texts=[query], n_results=n_results, where=where)
@@ -69,29 +124,50 @@ def search_kb(query: str, kind: str | None = None, n_results: int = 5) -> str:
     documents = results.get("documents", [[]])[0]
     metadatas = results.get("metadatas", [[]])[0]
     if not documents:
-        return f"No KB results for: {query!r}"
+        next_actions = ["Broaden or rephrase the query."]
+        if where is not None:
+            next_actions.append(f"Drop the kind={kind!r} filter to search all kinds.")
+        return _problem("warning", f"No KB results for {query!r}.", next_actions)
 
-    blocks = []
-    for doc, meta in zip(documents, metadatas):
-        blocks.append(f"[source: {meta['source']}]\n{doc}")
-    return "\n\n---\n\n".join(blocks)
+    chunks = [
+        {"source": meta["source"], "text": doc}
+        for doc, meta in zip(documents, metadatas)
+    ]
+    return _success(
+        f"{len(chunks)} matching chunk(s).",
+        payload=chunks,
+        source=[c["source"] for c in chunks],
+    )
 
 
 def list_projects() -> str:
     """List the projects tracked in projects.yaml.
 
     Returns:
-        A bulleted "name: description" list of tracked projects, or a
-        plain-language message if projects.yaml is missing or empty.
+        A SYS-003 observation (JSON string). On success, ``payload`` is a list of
+        ``{"name", "description"}``; otherwise a warning with recovery guidance.
     """
     if not PROJECTS_FILE.exists():
-        return "No projects.yaml found."
+        return _problem(
+            "warning",
+            "No projects.yaml found.",
+            ["Create projects.yaml at the repo root with a 'projects:' list."],
+        )
     config = yaml.safe_load(PROJECTS_FILE.read_text(encoding="utf-8")) or {}
     projects = config.get("projects", [])
     if not projects:
-        return "No projects are tracked yet."
-    lines = [f"- {p['name']}: {p.get('description', '(no description)')}" for p in projects]
-    return "Tracked projects:\n" + "\n".join(lines)
+        return _problem(
+            "warning",
+            "No projects are tracked yet.",
+            ["Add entries under 'projects:' in projects.yaml."],
+        )
+    payload = [
+        {"name": p["name"], "description": p.get("description", "(no description)")}
+        for p in projects
+    ]
+    return _success(
+        f"{len(payload)} tracked project(s).", payload=payload, source="projects.yaml"
+    )
 
 
 CLASSIFIER_PROJECT = "defense-news-classifier"
@@ -124,22 +200,27 @@ def classify_snippet(text: str) -> str:
 
     Routes to the running defense-news-classifier service over HTTP. The seam is
     deliberately HTTP, not a direct import, so the two projects stay decoupled —
-    each has its own environment and release cycle.
+    each has its own environment and release cycle. As the only tool that crosses
+    the network, it carries the fullest error-recovery guidance (SYS-003).
 
     Args:
         text: The defense-news snippet to classify.
 
     Returns:
-        The ``category`` and ``operational_domain`` labels plus a ``[source: ...]``
-        line on success. On any failure — no endpoint configured, service
-        unreachable, or a non-200 response — a plain-language message explaining
-        what went wrong (and how to start the service), rather than raising.
+        A SYS-003 observation (JSON string). On success, ``payload`` holds the
+        ``category`` and ``operational_domain`` labels. Every failure path — no
+        endpoint, unreachable service, transport error, or non-200 — returns an
+        error observation with root-cause, remediation, and a stop condition.
     """
     endpoint = _project_endpoint(CLASSIFIER_PROJECT)
     if not endpoint:
-        return (
-            f"No endpoint is configured for {CLASSIFIER_PROJECT!r} in projects.yaml, "
-            "so it can't be called. Add an 'endpoint:' field to its entry."
+        return _problem(
+            "error",
+            f"No endpoint is configured for {CLASSIFIER_PROJECT!r} in projects.yaml.",
+            [
+                f"Add an 'endpoint:' field to the {CLASSIFIER_PROJECT!r} entry in "
+                "projects.yaml, then retry.",
+            ],
         )
 
     url = endpoint.rstrip("/") + "/classify"
@@ -147,26 +228,45 @@ def classify_snippet(text: str) -> str:
         # The endpoint makes an upstream LLM call, so allow a generous timeout.
         response = httpx.post(url, json={"text": text}, timeout=30.0)
     except httpx.ConnectError:
-        return (
-            f"The {CLASSIFIER_PROJECT} service isn't reachable at {endpoint}. "
-            "Start it from that project's directory with:\n"
-            "    uv run --env-file .env uvicorn api:app --app-dir src"
+        return _problem(
+            "error",
+            f"The {CLASSIFIER_PROJECT} service isn't reachable at {endpoint}.",
+            [
+                "Start it from that project's directory: "
+                "uv run --env-file .env uvicorn api:app --app-dir src",
+                "Then retry classify_snippet. If it's still unreachable after "
+                "starting, stop and tell the user rather than retrying further.",
+            ],
         )
     except httpx.HTTPError as exc:  # timeouts, malformed responses, etc.
-        return f"Error calling the {CLASSIFIER_PROJECT} service: {exc}"
+        return _problem(
+            "error",
+            f"Error calling the {CLASSIFIER_PROJECT} service: {exc}",
+            [
+                "Retry once in case it was transient.",
+                "If it fails again, stop and report the error rather than looping.",
+            ],
+        )
 
     if response.status_code != 200:
         # Surface the service's own error detail so the model can relay it.
-        return (
-            f"The {CLASSIFIER_PROJECT} service returned HTTP {response.status_code}: "
-            f"{response.text}"
+        return _problem(
+            "error",
+            f"The {CLASSIFIER_PROJECT} service returned HTTP {response.status_code}.",
+            [
+                f"Service detail: {response.text}",
+                "Fix the request or the service, then retry. Do not retry unchanged.",
+            ],
         )
 
     data = response.json()
-    return (
-        f"category: {data['category']}\n"
-        f"operational_domain: {data['operational_domain']}\n"
-        f"[source: {CLASSIFIER_PROJECT} service, {url}]"
+    return _success(
+        f"Classified as {data['category']} / {data['operational_domain']}.",
+        payload={
+            "category": data["category"],
+            "operational_domain": data["operational_domain"],
+        },
+        source=f"{CLASSIFIER_PROJECT} service, {url}",
     )
 
 
@@ -246,27 +346,43 @@ def execute_tool(name: str, tool_input: dict) -> str:
         tool_input: The tool's arguments, passed through as keyword arguments.
 
     Returns:
-        The tool's string result, or an error message if the tool is unknown or
-        raised — errors are returned (not raised) so the model can read them and
-        adapt on the next turn.
+        The tool's SYS-003 observation string. Unknown tools and unexpected
+        exceptions are returned (not raised) as error observations, so the model
+        can read them and adapt on the next turn.
     """
     func = _DISPATCH.get(name)
     if func is None:
-        return f"Error: unknown tool {name!r}."
+        return _problem(
+            "error",
+            f"Unknown tool {name!r}.",
+            [f"Call one of: {', '.join(_DISPATCH)}."],
+        )
     try:
         return func(**tool_input)
     except Exception as exc:  # Surface errors back to the model so it can adapt.
-        return f"Error running {name}: {exc}"
+        return _problem(
+            "error",
+            f"The {name} tool raised an unexpected error: {exc}",
+            [
+                "This is an internal error, not a usage problem. Stop and report "
+                "it rather than retrying.",
+            ],
+        )
 
 
 if __name__ == "__main__":
-    # Quick manual smoke test.
-    print(list_projects())
-    print("\n---\n")
-    print(search_kb("what is spaCy used for"))
-    print("\n---\n")
-    # If the classifier service isn't running, this prints the "start it with..."
-    # message rather than raising — that's the graceful-failure path working.
-    print(classify_snippet(
-        "The Pentagon awarded a $4.2B contract for 24 F-35 fighters."
-    ))
+    # Quick manual smoke test — pretty-print the observation each tool returns.
+    def _show(label: str, raw: str) -> None:
+        print(label)
+        print(json.dumps(json.loads(raw), indent=2, ensure_ascii=False))
+        print()
+
+    _show("list_projects():", list_projects())
+    _show("search_kb('what is spaCy used for'):", search_kb("what is spaCy used for"))
+    # If the classifier service isn't running, this prints an error observation
+    # with next_actions (the "start it with..." path) rather than raising — that's
+    # the graceful-failure contract working.
+    _show(
+        "classify_snippet(...):",
+        classify_snippet("The Pentagon awarded a $4.2B contract for 24 F-35 fighters."),
+    )
