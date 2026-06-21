@@ -17,10 +17,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import chromadb
+import yaml
 from rich.console import Console
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 KB_DIR = REPO_ROOT / "kb"
+PROJECTS_FILE = REPO_ROOT / "projects.yaml"
 CHROMA_DIR = REPO_ROOT / "chroma_db"
 COLLECTION_NAME = "knowledge_base"
 
@@ -68,31 +70,72 @@ def chunk_markdown(text: str) -> list[str]:
     return chunks
 
 
+def notes_dirs() -> list[Path]:
+    """External directories of hand-written notes to index alongside kb/.
+
+    Configured under ``notes_dirs`` in projects.yaml. These live outside this
+    repo (and outside git) on purpose; we only read them at index time.
+    """
+    if not PROJECTS_FILE.exists():
+        return []
+    config = yaml.safe_load(PROJECTS_FILE.read_text(encoding="utf-8")) or {}
+    return [Path(p) for p in config.get("notes_dirs", [])]
+
+
+def _add_file(
+    md_file: Path,
+    kind: str,
+    source: str,
+    documents: list[str],
+    metadatas: list[dict],
+    ids: list[str],
+) -> None:
+    """Chunk one Markdown file and append its chunks to the parallel arrays."""
+    text = md_file.read_text(encoding="utf-8")
+    for i, chunk in enumerate(chunk_markdown(text)):
+        documents.append(chunk)
+        metadatas.append({"source": source, "kind": kind, "name": md_file.stem})
+        ids.append(f"{kind}/{md_file.stem}#{i}")
+
+
 def collect_documents() -> tuple[list[str], list[dict], list[str]]:
-    """Walk kb/ and build the parallel arrays ChromaDB's add() expects.
+    """Build the parallel arrays ChromaDB's add() expects, one entry per chunk.
+
+    Walks the in-repo kb/ tree (kind = parent folder, e.g. ``projects`` /
+    ``libraries``) plus any external ``notes_dirs`` from projects.yaml
+    (kind = ``notes``). Each metadata dict carries ``source``, ``kind``, and
+    ``name``.
 
     Returns:
-        A ``(documents, metadatas, ids)`` tuple of equal-length lists — one
-        entry per chunk. Each metadata dict carries ``source``, ``kind``, and
-        ``name``; each id is ``"{kind}/{name}#{i}"``.
+        A ``(documents, metadatas, ids)`` tuple of equal-length lists.
     """
     documents: list[str] = []
     metadatas: list[dict] = []
     ids: list[str] = []
 
     for md_file in sorted(KB_DIR.rglob("*.md")):
-        kind = md_file.parent.name  # "projects" or "libraries"
-        name = md_file.stem
-        text = md_file.read_text(encoding="utf-8")
+        _add_file(
+            md_file,
+            md_file.parent.name,  # "projects" or "libraries"
+            str(md_file.relative_to(REPO_ROOT)),
+            documents,
+            metadatas,
+            ids,
+        )
 
-        for i, chunk in enumerate(chunk_markdown(text)):
-            documents.append(chunk)
-            metadatas.append({
-                "source": str(md_file.relative_to(REPO_ROOT)),
-                "kind": kind,
-                "name": name,
-            })
-            ids.append(f"{kind}/{name}#{i}")
+    for notes_dir in notes_dirs():
+        if not notes_dir.exists():
+            console.print(f"[yellow]notes_dir not found, skipping: {notes_dir}[/yellow]")
+            continue
+        for md_file in sorted(notes_dir.rglob("*.md")):
+            _add_file(
+                md_file,
+                "notes",
+                f"{notes_dir.name}/{md_file.name}",
+                documents,
+                metadatas,
+                ids,
+            )
 
     return documents, metadatas, ids
 

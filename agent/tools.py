@@ -50,8 +50,8 @@ def search_kb(query: str, kind: str | None = None, n_results: int = 5) -> str:
 
     Args:
         query: What to search for, in natural language.
-        kind: Optional filter — ``"projects"`` or ``"libraries"``. Any other
-            value (or None) searches both kinds.
+        kind: Optional filter — ``"projects"``, ``"libraries"``, or ``"notes"``.
+            Any other value (or None) searches all kinds.
         n_results: Maximum number of chunks to return.
 
     Returns:
@@ -63,7 +63,7 @@ def search_kb(query: str, kind: str | None = None, n_results: int = 5) -> str:
     if collection is None:
         return "The knowledge base has not been indexed yet. Run scripts/index.py first."
 
-    where = {"kind": kind} if kind in ("projects", "libraries") else None
+    where = {"kind": kind} if kind in ("projects", "libraries", "notes") else None
     results = collection.query(query_texts=[query], n_results=n_results, where=where)
 
     documents = results.get("documents", [[]])[0]
@@ -176,9 +176,10 @@ TOOLS = [
     {
         "name": "search_kb",
         "description": (
-            "Search the personal knowledge base of projects and libraries. "
-            "Call this whenever the user asks about a tool, library, design "
-            "decision, or how something was used in a project."
+            "Search the personal knowledge base of projects, libraries, and "
+            "plain-language concept notes. Call this whenever the user asks about "
+            "a tool, library, concept, design decision, or how something was used "
+            "in a project."
         ),
         "input_schema": {
             "type": "object",
@@ -189,8 +190,8 @@ TOOLS = [
                 },
                 "kind": {
                     "type": "string",
-                    "enum": ["projects", "libraries"],
-                    "description": "Optional filter: only search projects or only libraries.",
+                    "enum": ["projects", "libraries", "notes"],
+                    "description": "Optional filter: restrict to projects, libraries, or concept notes.",
                 },
                 "n_results": {
                     "type": "integer",
