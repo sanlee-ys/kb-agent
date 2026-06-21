@@ -13,4 +13,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["ruff"]
+dev = ["ruff", "pytest>=8.0"]
+
+[tool.pytest.ini_options]
+# Put the repo root on sys.path so tests can import the `agent` and `scripts`
+# namespace packages without an installed package or __init__.py files.
+pythonpath = ["."]
+testpaths = ["tests"]
