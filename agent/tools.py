@@ -22,7 +22,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PROJECTS_FILE = REPO_ROOT / "projects.yaml"
 CHROMA_DIR = REPO_ROOT / "chroma_db"
-COLLECTION_NAME = "kb"
+COLLECTION_NAME = "knowledge_base"
 
 
 def _get_collection():

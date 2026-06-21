@@ -22,7 +22,7 @@ from rich.console import Console
 REPO_ROOT = Path(__file__).resolve().parent.parent
 KB_DIR = REPO_ROOT / "kb"
 CHROMA_DIR = REPO_ROOT / "chroma_db"
-COLLECTION_NAME = "kb"
+COLLECTION_NAME = "knowledge_base"
 
 # Roughly target this many characters per chunk before starting a new one.
 MAX_CHUNK_CHARS = 1200
