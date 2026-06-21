@@ -94,4 +94,6 @@ crashing.
 
 v1 — local KB with a RAG/tool-use agent (Gradio chat UI + CLI), now with a first
 cross-project **ecosystem seam**: the agent can call a tracked project's HTTP
-service (defense-news-classifier) through the `classify_snippet` tool.
+service (defense-news-classifier) through the `classify_snippet` tool. Tools follow a
+shared observation contract (`system/SYS-003`) and have an offline test suite
+(`uv run pytest`).

@@ -13,6 +13,10 @@ the **classifier's** own `docs/notes/v2-kickoff.md`, because the two roadmaps me
   defense-news-classifier's `/classify` endpoint. Which projects are callable is config
   (an `endpoint:` in `projects.yaml`), the seam is HTTP (not a direct import), and the tool
   fails gracefully when the service is down. Verified end to end through the agent.
+  - *Since v1:* the tool layer gained a documented contract — `system/SYS-003` (a consistent
+    observation shape + recovery contract + eval gate). Note the scope: that governs kb-agent's
+    **agent-facing tool results**; a future service-to-service `/search` API (scoping Q1 below) is
+    a normal REST contract, not the observation shape — don't conflate the two.
 - **The deliberate non-goal of v1:** no shared library, no merged vector store. With only
   two projects, abstracting a shared backbone risked premature abstraction — so we proved
   the cheap, decoupled seam first.
