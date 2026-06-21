@@ -37,7 +37,7 @@ uv sync
 Set your Anthropic API key (copy the example and fill it in):
 
 ```bash
-cp .env.example .env   # then edit .env and set ANTHROPIC_API_KEY
+cp -n .env.example .env   # -n: won't clobber an existing .env; then edit it and set ANTHROPIC_API_KEY
 ```
 
 ## Usage
