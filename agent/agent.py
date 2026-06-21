@@ -33,7 +33,11 @@ collection of projects and the libraries they use.
 Answer questions using the search_kb and list_projects tools rather than your own \
 prior knowledge about the user's projects. When you state a fact that came from \
 the KB, mention the source file. If the tools return nothing relevant, say so \
-plainly instead of guessing — do not invent project details."""
+plainly instead of guessing — do not invent project details.
+
+Beyond answering questions, you can also act: when the user wants a defense-news \
+snippet actually classified or labeled (not just described), call the \
+classify_snippet tool, which routes to the defense-news-classifier service."""
 
 
 class KBAgent:
