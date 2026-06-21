@@ -161,9 +161,9 @@ def main() -> None:
         pass  # Collection didn't exist yet — fine.
     collection = client.create_collection(COLLECTION_NAME)
 
-    # metadatas is a list[dict], which static checkers may not recognize as the
-    # exact Mapping type ChromaDB expects. At runtime this is fine; silence
-    # the type checker for this argument.
+    # Each dict here IS a valid ChromaDB Metadata (Mapping[str, ...]), but
+    # `list` is invariant: list[dict] isn't assignable to List[Metadata], so the
+    # type checker flags the call. It's correct at runtime; ignore just this arg.
     collection.add(documents=documents, metadatas=metadatas, ids=ids)  # type: ignore[arg-type]
 
     console.print(
