@@ -4,6 +4,8 @@
 work doesn't re-derive what v1 settled. Read this together with the `README.md` — and with
 the **classifier's** own `docs/notes/v2-kickoff.md`, because the two roadmaps meet here.*
 
+> **Update (v2 shipped):** the classifier went with its own BM25 retriever; the kb-agent `/search`-endpoint idea proposed here was not taken.
+
 ---
 
 ## Where v1 left off
