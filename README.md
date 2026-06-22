@@ -1,5 +1,7 @@
 # kb-agent
 
+![CI](https://github.com/sanlee-ys/kb-agent/actions/workflows/ci.yml/badge.svg)
+
 A personal, living knowledge base over your projects and the libraries you use —
 with an AI agent you can ask questions, answered with RAG + tool use.
 
