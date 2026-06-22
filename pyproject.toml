@@ -1,7 +1,10 @@
 [project]
 name = "kb-agent"
 version = "0.1.0"
-requires-python = ">=3.11"
+# Capped below 3.14 because onnxruntime (a chromadb dependency) ships no
+# Intel-mac wheel for Python 3.14 — its last x86_64 macOS build is 1.23.2,
+# which tops out at cp313. See the tool.uv constraint below.
+requires-python = ">=3.11,<3.14"
 dependencies = [
     "anthropic>=0.40.0",
     "chromadb>=0.5.0",
@@ -14,6 +17,14 @@ dependencies = [
 
 [dependency-groups]
 dev = ["ruff", "pytest>=8.0"]
+
+[tool.uv]
+# onnxruntime dropped Intel-mac (x86_64) wheels after 1.23.2, so on that
+# platform only we hold it below 1.24. Other platforms still resolve to the
+# latest (1.27+). chromadb only requires onnxruntime>=1.14.1, so this is safe.
+constraint-dependencies = [
+    "onnxruntime<1.24; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+]
 
 [tool.pytest.ini_options]
 # Put the repo root on sys.path so tests can import the `agent` and `scripts`
