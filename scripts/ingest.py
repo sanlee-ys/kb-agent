@@ -35,7 +35,9 @@ PROJECTS_FILE = REPO_ROOT / "projects.yaml"
 KB_PROJECTS = REPO_ROOT / "kb" / "projects"
 KB_LIBRARIES = REPO_ROOT / "kb" / "libraries"
 
-MODEL = "claude-opus-4-8"
+# SYS-002 model-tier standard: the Sonnet workhorse is the default for stub
+# generation; bump this only if an eval shows a stronger tier writes better stubs.
+MODEL = "claude-sonnet-4-6"
 
 console = Console()
 

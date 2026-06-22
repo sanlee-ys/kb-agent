@@ -14,7 +14,7 @@ store, and an agent answers questions grounded in that KB.
 Environment uses [uv](https://docs.astral.sh/uv/); Python 3.11+ required.
 
 ```bash
-uv sync                                   # install deps (incl. dev extras: ruff)
+uv sync                                   # install deps incl. the dev group (ruff, pytest)
 cp -n .env.example .env                   # then set ANTHROPIC_API_KEY
 
 # Pipeline (run in order):
@@ -34,7 +34,8 @@ uv run ruff check .                       # lint
 
 Tests live in `tests/` (`test_tools.py`, `test_index.py`, `test_ingest.py`) and run
 offline — no API key, no network. `tests/test_tools.py` includes `_obs()`, a grader that
-asserts every tool result conforms to the SYS-003 observation shape. There is no CI yet.
+asserts every tool result conforms to the SYS-003 observation shape. CI
+(`.github/workflows/ci.yml`) runs ruff + the test suite on push and PR.
 The `__main__` blocks (`agent/tools.py`, `agent/agent.py`) also double as smoke tests.
 
 ## Architecture
@@ -79,8 +80,12 @@ projects.yaml → ingest.py → kb/*.md → index.py → chroma_db/ → tools.se
 
 ## Conventions
 
-- **Model**: `claude-opus-4-8`, defined as a `MODEL` constant in each module that calls
-  the API (`agent/agent.py`, `scripts/ingest.py`). Update all of them together.
+- **Model**: defaults to the `claude-sonnet-4-6` workhorse per the SYS-002 model-tier
+  standard (default to Sonnet; escalate only where a task needs it). It's a constant in
+  each module that calls the API — `DEFAULT_MODEL` in `agent/agent.py`, `MODEL` in
+  `scripts/ingest.py` (update both together). Escalate the agent without code changes via
+  the `KB_AGENT_MODEL` env var (e.g. `KB_AGENT_MODEL=claude-opus-4-8`) or per instance
+  with `KBAgent(model=...)`.
 - **Paths**: every module resolves `REPO_ROOT = Path(__file__).resolve().parent.parent`
   and builds paths from it, so scripts work regardless of CWD. `agent/agent.py` uses a
   `try/except ImportError` shim so it runs both as `python agent/agent.py` and as an
