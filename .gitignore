@@ -6,3 +6,6 @@ __pycache__/
 .venv/
 *.egg-info/
 *.log
+.coverage
+htmlcov/
+.pytest_cache/
