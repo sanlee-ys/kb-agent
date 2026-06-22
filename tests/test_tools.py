@@ -163,3 +163,78 @@ def test_classify_snippet_happy_path(tmp_path, monkeypatch):
     assert data["status"] == "success"
     assert data["payload"] == {"category": "procurement", "operational_domain": "air"}
     assert "defense-news-classifier service" in data["source"]
+
+
+# --- Frozen /classify contract (SYS-004) -------------------------------------
+# The /classify contract is frozen: a 200 must carry a JSON object with both
+# `category` and `operational_domain`. These tests pin both ends of that — a
+# well-formed 200 yields a SUCCESS observation, and a 200 that breaks the
+# contract yields an ERROR observation (never a raised exception). Both still
+# pass the SYS-003 _obs() grader.
+
+
+def _classifier_projects_yaml(tmp_path, monkeypatch):
+    """Configure a classifier endpoint so classify_snippet reaches the HTTP call."""
+    _write_projects(
+        tmp_path,
+        "projects:\n"
+        "  - name: defense-news-classifier\n"
+        "    endpoint: http://127.0.0.1:8000\n",
+        monkeypatch,
+    )
+
+
+class _FakeResponse:
+    """Minimal stand-in for httpx.Response: a status, a JSON body, and .text."""
+
+    def __init__(self, payload, status_code=200, text="<body>"):
+        self._payload = payload
+        self.status_code = status_code
+        self.text = text
+
+    def json(self):
+        if isinstance(self._payload, Exception):
+            raise self._payload
+        return self._payload
+
+
+def test_classify_snippet_contract_well_formed_200_is_success(tmp_path, monkeypatch):
+    _classifier_projects_yaml(tmp_path, monkeypatch)
+    body = {"category": "technology", "operational_domain": "air"}
+    monkeypatch.setattr(tools.httpx, "post", lambda *a, **k: _FakeResponse(body))
+
+    data = _obs(classify_snippet("A new autonomous drone swarm was demonstrated."))
+    assert data["status"] == "success"
+    assert data["payload"]["category"] == "technology"
+    assert data["payload"]["operational_domain"] == "air"
+
+
+def test_classify_snippet_contract_empty_200_is_error(tmp_path, monkeypatch):
+    _classifier_projects_yaml(tmp_path, monkeypatch)
+    monkeypatch.setattr(tools.httpx, "post", lambda *a, **k: _FakeResponse({}))
+
+    # Must be a returned error observation, not a raised KeyError.
+    data = _obs(classify_snippet("some snippet"))
+    assert data["status"] == "error"
+    assert "SYS-004" in data["summary"]
+
+
+def test_classify_snippet_contract_partial_200_is_error(tmp_path, monkeypatch):
+    _classifier_projects_yaml(tmp_path, monkeypatch)
+    # category present, operational_domain missing -> contract violation.
+    body = {"category": "technology"}
+    monkeypatch.setattr(tools.httpx, "post", lambda *a, **k: _FakeResponse(body))
+
+    data = _obs(classify_snippet("some snippet"))
+    assert data["status"] == "error"
+    assert "operational_domain" in data["summary"]
+
+
+def test_classify_snippet_contract_non_json_200_is_error(tmp_path, monkeypatch):
+    _classifier_projects_yaml(tmp_path, monkeypatch)
+    bad = _FakeResponse(ValueError("no json"), text="not json at all")
+    monkeypatch.setattr(tools.httpx, "post", lambda *a, **k: bad)
+
+    data = _obs(classify_snippet("some snippet"))
+    assert data["status"] == "error"
+    assert "SYS-004" in data["summary"]

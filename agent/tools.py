@@ -259,7 +259,44 @@ def classify_snippet(text: str) -> str:
             ],
         )
 
-    data = response.json()
+    # A 200 is necessary but not sufficient: the body must honor the frozen
+    # /classify contract (SYS-004) — a JSON object carrying both `category` and
+    # `operational_domain`. Parse defensively so a malformed/contract-violating
+    # 200 surfaces as a clean error observation instead of a raw KeyError/
+    # ValueError escaping the tool.
+    try:
+        data = response.json()
+    except ValueError:
+        return _problem(
+            "error",
+            f"The {CLASSIFIER_PROJECT} service returned HTTP 200 with a body that "
+            "isn't valid JSON, violating the frozen /classify contract (SYS-004).",
+            [
+                f"Service body: {response.text}",
+                "This is a service-side contract violation, not a usage problem. "
+                "Stop and report it; do not retry unchanged.",
+            ],
+        )
+
+    missing = [
+        key
+        for key in ("category", "operational_domain")
+        if not isinstance(data, dict) or key not in data
+    ]
+    if missing:
+        return _problem(
+            "error",
+            f"The {CLASSIFIER_PROJECT} service returned a 200 response that "
+            f"violates the frozen /classify contract (SYS-004): expected a JSON "
+            f"object with 'category' and 'operational_domain', missing "
+            f"{', '.join(missing)}.",
+            [
+                f"Service body: {response.text}",
+                "This is a service-side contract violation, not a usage problem. "
+                "Stop and report it; do not retry unchanged.",
+            ],
+        )
+
     return _success(
         f"Classified as {data['category']} / {data['operational_domain']}.",
         payload={
