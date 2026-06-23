@@ -330,9 +330,10 @@ def search_notes(query: str | None = None, tag: str | None = None) -> str:
     Returns:
         A SYS-003 observation (JSON string). On success, ``payload`` is a list of
         ``{"id", "title", "content", "tags"}`` notes and ``source`` is the service
-        URL. No matches is a warning; every failure path — no endpoint, unreachable,
-        transport error, non-200, non-JSON, or a non-array body — returns an error
-        observation with root-cause, remediation, and a stop condition.
+        URL. An empty result is a warning; every failure path — no endpoint,
+        unreachable, transport error, non-200, non-JSON, a non-array body, or an
+        array with non-note elements — returns an error observation with root-cause,
+        remediation, and a stop condition.
     """
     endpoint = _project_endpoint(NOTES_PROJECT)
     if not endpoint:
@@ -414,25 +415,42 @@ def search_notes(query: str | None = None, tag: str | None = None) -> str:
             ],
         )
 
-    if not data:
+    # Every element must be a note object. Don't drop non-objects silently: if the
+    # array holds anything that isn't a dict, that's a malformed body — surface it as
+    # a contract problem rather than collapsing to an empty "success".
+    note_objs = [n for n in data if isinstance(n, dict)]
+    if len(note_objs) != len(data):
+        return _problem(
+            "error",
+            f"The {NOTES_PROJECT} service returned a 200 array with "
+            f"{len(data) - len(note_objs)} element(s) that aren't note objects.",
+            [
+                f"Service body: {response.text}",
+                "This is a service-side contract problem. Stop and report it; do "
+                "not retry unchanged.",
+            ],
+        )
+
+    # Decide emptiness AFTER validating the elements, so "no matches" is a genuine
+    # empty result — not a body we silently filtered down to nothing.
+    if not note_objs:
         next_actions = ["Broaden or rephrase the query, or omit filters to list all notes."]
         if tag:
             next_actions.append(f"Drop the tag={tag!r} filter.")
         return _problem("warning", "No notes matched the given filters.", next_actions)
 
-    notes = [
+    payload = [
         {
             "id": n.get("id"),
             "title": n.get("title"),
             "content": n.get("content"),
             "tags": n.get("tags", []),
         }
-        for n in data
-        if isinstance(n, dict)
+        for n in note_objs
     ]
     return _success(
-        f"{len(notes)} matching note(s).",
-        payload=notes,
+        f"{len(payload)} matching note(s).",
+        payload=payload,
         source=f"{NOTES_PROJECT} service, {url}",
     )
 

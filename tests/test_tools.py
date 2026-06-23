@@ -329,3 +329,13 @@ def test_search_notes_non_array_200_is_error(tmp_path, monkeypatch):
     data = _obs(search_notes("x"))
     assert data["status"] == "error"
     assert "array" in data["summary"]
+
+
+def test_search_notes_non_note_elements_is_error(tmp_path, monkeypatch):
+    _notes_projects_yaml(tmp_path, monkeypatch)
+    # A non-empty array whose elements aren't note objects is a malformed body —
+    # it must NOT collapse to a success with an empty payload (it's not "no matches").
+    monkeypatch.setattr(tools.httpx, "get", lambda *a, **k: _FakeResponse(["a", "b"]))
+    data = _obs(search_notes("x"))
+    assert data["status"] == "error"
+    assert "aren't note objects" in data["summary"]
