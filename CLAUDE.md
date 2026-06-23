@@ -57,12 +57,14 @@ projects.yaml → ingest.py → kb/*.md → index.py → chroma_db/ → tools.se
    no network**. The collection is dropped and rebuilt from scratch each run, so
    deleted/renamed KB files leave no stale chunks. Chunk metadata carries
    `source` (repo-relative path), `kind` (`projects`/`libraries`), and `name`.
-3. **`agent/tools.py`** exposes three tools to the model: `search_kb(query, kind?,
+3. **`agent/tools.py`** exposes four tools to the model: `search_kb(query, kind?,
    n_results?)` (semantic query over ChromaDB, optional `kind` filter) and
-   `list_projects()` (reads `projects.yaml`) are both local; `classify_snippet(text)`
-   is the cross-repo seam — it POSTs to the `defense-news-classifier` service's
-   `/classify` endpoint over HTTP (base URL read from `projects.yaml`, not hardcoded),
-   so the agent actually *drives* a tracked project rather than just describing it.
+   `list_projects()` (reads `projects.yaml`) are both local; the other two are
+   cross-repo HTTP seams (base URLs from `projects.yaml`, not hardcoded) so the agent
+   *drives* / *reads* tracked services rather than just describing them:
+   `classify_snippet(text)` POSTs to the `defense-news-classifier` service's
+   `/classify` endpoint, and `search_notes(query?, tag?)` GETs the `notes-api`
+   service's `/notes` endpoint to read the user's live notes.
    Tool JSON schemas are hand-written in `TOOLS` and dispatched via
    `_DISPATCH`/`execute_tool`. Every tool returns a **SYS-003 observation** — a JSON
    string built via `_success`/`_problem`, with a `status` field
