@@ -1,13 +1,16 @@
 """Tools the KB agent can call.
 
-Three tools:
+Four tools:
 
   - search_kb(query, kind?, n_results?) — semantic search over the indexed
     Markdown KB (ChromaDB). Local.
   - list_projects() — list the projects tracked in projects.yaml. Local.
   - classify_snippet(text) — classify a defense-news snippet by calling the
-    defense-news-classifier's HTTP service. This is the "ecosystem" seam: the
-    agent doesn't just *describe* a tracked project, it *drives* one over HTTP.
+    defense-news-classifier's HTTP service. An "ecosystem" seam: the agent
+    doesn't just *describe* a tracked project, it *drives* one over HTTP.
+  - search_notes(query?, tag?) — read the user's live notes from the notes-api
+    service over HTTP. The second ecosystem seam: the agent reads a tracked
+    service's own data, not a static stub.
 
 Each tool is a plain Python function. The JSON schemas the model sees live in
 TOOLS, and execute_tool() dispatches a tool-use request to the right function.
@@ -307,6 +310,133 @@ def classify_snippet(text: str) -> str:
     )
 
 
+NOTES_PROJECT = "notes-api"
+
+
+def search_notes(query: str | None = None, tag: str | None = None) -> str:
+    """Search the user's live notes via the notes-api service's GET /notes endpoint.
+
+    The second cross-repo seam (alongside classify_snippet): the agent reads the
+    user's notes from the service that *owns* them, over HTTP, rather than from a
+    static KB stub. Deliberately HTTP, not a direct import or a shared DB, so the
+    repos stay decoupled. Base URL comes from projects.yaml, not hardcoded.
+
+    Args:
+        query: Optional free text to match in a note's title/content (notes-api's
+            ``?q=``). Omit to not filter by text.
+        tag: Optional exact tag to require (notes-api's ``?tag=``), e.g. a
+            ``category:``/``domain:`` label. With neither argument, lists all notes.
+
+    Returns:
+        A SYS-003 observation (JSON string). On success, ``payload`` is a list of
+        ``{"id", "title", "content", "tags"}`` notes and ``source`` is the service
+        URL. No matches is a warning; every failure path — no endpoint, unreachable,
+        transport error, non-200, non-JSON, or a non-array body — returns an error
+        observation with root-cause, remediation, and a stop condition.
+    """
+    endpoint = _project_endpoint(NOTES_PROJECT)
+    if not endpoint:
+        return _problem(
+            "error",
+            f"No endpoint is configured for {NOTES_PROJECT!r} in projects.yaml.",
+            [
+                f"Add an 'endpoint:' field to the {NOTES_PROJECT!r} entry in "
+                "projects.yaml, then retry.",
+            ],
+        )
+
+    url = endpoint.rstrip("/") + "/notes"
+    params: dict[str, str] = {}
+    if query:
+        params["q"] = query
+    if tag:
+        params["tag"] = tag
+
+    try:
+        # A plain DB-backed read (no LLM), so a short timeout is appropriate.
+        response = httpx.get(url, params=params, timeout=10.0)
+    except httpx.ConnectError:
+        return _problem(
+            "error",
+            f"The {NOTES_PROJECT} service isn't reachable at {endpoint}.",
+            [
+                "Start it from that project's directory: ./mvnw spring-boot:run "
+                "(it serves on http://localhost:8081).",
+                "Then retry search_notes. If it's still unreachable after starting, "
+                "stop and tell the user rather than retrying further.",
+            ],
+        )
+    except httpx.HTTPError as exc:  # timeouts, malformed responses, etc.
+        return _problem(
+            "error",
+            f"Error calling the {NOTES_PROJECT} service: {exc}",
+            [
+                "Retry once in case it was transient.",
+                "If it fails again, stop and report the error rather than looping.",
+            ],
+        )
+
+    if response.status_code != 200:
+        return _problem(
+            "error",
+            f"The {NOTES_PROJECT} service returned HTTP {response.status_code}.",
+            [
+                f"Service detail: {response.text}",
+                "Fix the request or the service, then retry. Do not retry unchanged.",
+            ],
+        )
+
+    # A 200 must carry a JSON array of notes. Parse defensively so a malformed body
+    # surfaces as a clean error observation instead of an exception escaping the tool.
+    try:
+        data = response.json()
+    except ValueError:
+        return _problem(
+            "error",
+            f"The {NOTES_PROJECT} service returned HTTP 200 with a body that isn't "
+            "valid JSON.",
+            [
+                f"Service body: {response.text}",
+                "This is a service-side problem, not a usage problem. Stop and "
+                "report it; do not retry unchanged.",
+            ],
+        )
+
+    if not isinstance(data, list):
+        return _problem(
+            "error",
+            f"The {NOTES_PROJECT} service returned a 200 whose body is not the "
+            "expected JSON array of notes.",
+            [
+                f"Service body: {response.text}",
+                "This is a service-side contract problem. Stop and report it; do "
+                "not retry unchanged.",
+            ],
+        )
+
+    if not data:
+        next_actions = ["Broaden or rephrase the query, or omit filters to list all notes."]
+        if tag:
+            next_actions.append(f"Drop the tag={tag!r} filter.")
+        return _problem("warning", "No notes matched the given filters.", next_actions)
+
+    notes = [
+        {
+            "id": n.get("id"),
+            "title": n.get("title"),
+            "content": n.get("content"),
+            "tags": n.get("tags", []),
+        }
+        for n in data
+        if isinstance(n, dict)
+    ]
+    return _success(
+        f"{len(notes)} matching note(s).",
+        payload=notes,
+        source=f"{NOTES_PROJECT} service, {url}",
+    )
+
+
 # JSON schemas exposed to the model. Descriptions are prescriptive about WHEN to
 # call each tool, which improves the model's tool-selection accuracy.
 TOOLS = [
@@ -365,6 +495,28 @@ TOOLS = [
             "required": ["text"],
         },
     },
+    {
+        "name": "search_notes",
+        "description": (
+            "Search the user's live notes in the notes-api service. Call this when "
+            "the user asks about their own notes — to find notes on a topic, filter "
+            "by a tag, or list what notes exist. Returns matching notes (title, "
+            "content, tags) from the running service, not the static KB stubs."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Free text to match in a note's title/content.",
+                },
+                "tag": {
+                    "type": "string",
+                    "description": "Exact tag to require (e.g. a category:/domain: label).",
+                },
+            },
+        },
+    },
 ]
 
 # Map tool name -> callable for dispatch.
@@ -372,6 +524,7 @@ _DISPATCH = {
     "search_kb": search_kb,
     "list_projects": list_projects,
     "classify_snippet": classify_snippet,
+    "search_notes": search_notes,
 }
 
 
@@ -423,3 +576,6 @@ if __name__ == "__main__":
         "classify_snippet(...):",
         classify_snippet("The Pentagon awarded a $4.2B contract for 24 F-35 fighters."),
     )
+    # If the notes-api service isn't running, this prints an error observation with
+    # next_actions (the "start it with ./mvnw spring-boot:run" path) rather than raising.
+    _show("search_notes('drone'):", search_notes("drone"))
