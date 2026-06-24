@@ -32,10 +32,15 @@ uv run pytest                             # run the test suite (offline; no API 
 uv run ruff check .                       # lint
 ```
 
-Tests live in `tests/` (`test_tools.py`, `test_index.py`, `test_ingest.py`) and run
-offline — no API key, no network. `tests/test_tools.py` includes `_obs()`, a grader that
-asserts every tool result conforms to the SYS-003 observation shape. There is no CI yet.
-The `__main__` blocks (`agent/tools.py`, `agent/agent.py`) also double as smoke tests.
+Tests live in `tests/` (`test_tools.py`, `test_index.py`, `test_ingest.py`,
+`test_kb_roundtrip.py`). Most run offline — no API key, no network — and
+`tests/test_tools.py` includes `_obs()`, a grader that asserts every tool result conforms
+to the SYS-003 observation shape. The exception is `test_kb_roundtrip.py`, marked
+`@pytest.mark.integration`: it builds a **real ChromaDB** in a temp dir and runs the
+index→`search_kb` round-trip, so it loads the local `all-MiniLM-L6-v2` embedding model
+(downloaded once, ~80MB, the first time on any machine). It runs by default; skip it for
+the fast loop with `uv run pytest -m "not integration"`. There is no CI yet. The
+`__main__` blocks (`agent/tools.py`, `agent/agent.py`) also double as smoke tests.
 
 ## Architecture
 
