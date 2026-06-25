@@ -1,6 +1,6 @@
 """The KB agent: a manual Anthropic tool-use loop over the KB tools.
 
-KBAgent.ask() sends the conversation to claude-opus-4-8 with the tools defined in
+KBAgent.ask() sends the conversation to the configured model with the tools defined in
 tools.py. When the model asks to call a tool, we execute it, feed the result
 back, and loop until the model produces a final answer. This is the "manual
 agentic loop" (rather than the SDK tool runner) so the control flow is explicit
@@ -12,6 +12,7 @@ Run directly for a simple CLI chat:
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import anthropic
@@ -24,7 +25,12 @@ except ImportError:  # running as a script
     from tools import TOOLS, execute_tool
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-MODEL = "claude-opus-4-8"
+
+# SYS-002 model-tier standard: default to the Sonnet workhorse and escalate to a
+# stronger tier only where a task needs it. Override per run without code changes
+# via the KB_AGENT_MODEL env var (e.g. KB_AGENT_MODEL=claude-opus-4-8), or per
+# instance with KBAgent(model=...).
+DEFAULT_MODEL = "claude-sonnet-4-6"
 MAX_TOOL_ITERATIONS = 10  # safety cap on the tool-use loop
 
 SYSTEM_PROMPT = """You are a knowledge-base assistant for a developer's personal \
@@ -49,10 +55,12 @@ tool did not return."""
 class KBAgent:
     """Stateful chat agent that retains conversation history across turns."""
 
-    def __init__(self, model: str = MODEL, system: str = SYSTEM_PROMPT):
+    def __init__(self, model: str | None = None, system: str = SYSTEM_PROMPT):
         load_dotenv(REPO_ROOT / ".env")
         self.client = anthropic.Anthropic()
-        self.model = model
+        # Precedence: explicit arg > KB_AGENT_MODEL env var (read after .env is
+        # loaded, so it can live there too) > the Sonnet workhorse default.
+        self.model = model or os.environ.get("KB_AGENT_MODEL", DEFAULT_MODEL)
         self.system = system
         self.messages: list[dict] = []
 

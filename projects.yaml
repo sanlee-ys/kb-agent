@@ -7,6 +7,13 @@ projects:
     # not just searchable. Start this one with, from the classifier's directory:
     #   uv run --env-file .env uvicorn api:app --app-dir src
     endpoint: http://127.0.0.1:8000
+  - name: notes-api
+    path: C:\Users\sanle\OneDrive\Desktop\Claude Code Projects\notes-api
+    description: Spring Boot REST API for notes (CRUD, tags, search; event-driven)
+    # The agent reads notes from this service over HTTP (see search_notes in
+    # tools.py). Start it with, from the notes-api directory:
+    #   ./mvnw spring-boot:run   (serves on http://localhost:8081)
+    endpoint: http://localhost:8081
 
 # Extra directories of hand-written Markdown notes to index alongside the
 # generated KB. These live outside this repo (and outside git) on purpose;

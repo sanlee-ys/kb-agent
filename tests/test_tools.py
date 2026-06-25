@@ -22,6 +22,7 @@ from agent.tools import (
     execute_tool,
     list_projects,
     search_kb,
+    search_notes,
 )
 
 
@@ -163,3 +164,178 @@ def test_classify_snippet_happy_path(tmp_path, monkeypatch):
     assert data["status"] == "success"
     assert data["payload"] == {"category": "procurement", "operational_domain": "air"}
     assert "defense-news-classifier service" in data["source"]
+
+
+# --- Frozen /classify contract (SYS-004) -------------------------------------
+# The /classify contract is frozen: a 200 must carry a JSON object with both
+# `category` and `operational_domain`. These tests pin both ends of that — a
+# well-formed 200 yields a SUCCESS observation, and a 200 that breaks the
+# contract yields an ERROR observation (never a raised exception). Both still
+# pass the SYS-003 _obs() grader.
+
+
+def _classifier_projects_yaml(tmp_path, monkeypatch):
+    """Configure a classifier endpoint so classify_snippet reaches the HTTP call."""
+    _write_projects(
+        tmp_path,
+        "projects:\n"
+        "  - name: defense-news-classifier\n"
+        "    endpoint: http://127.0.0.1:8000\n",
+        monkeypatch,
+    )
+
+
+class _FakeResponse:
+    """Minimal stand-in for httpx.Response: a status, a JSON body, and .text."""
+
+    def __init__(self, payload, status_code=200, text="<body>"):
+        self._payload = payload
+        self.status_code = status_code
+        self.text = text
+
+    def json(self):
+        if isinstance(self._payload, Exception):
+            raise self._payload
+        return self._payload
+
+
+def test_classify_snippet_contract_well_formed_200_is_success(tmp_path, monkeypatch):
+    _classifier_projects_yaml(tmp_path, monkeypatch)
+    body = {"category": "technology", "operational_domain": "air"}
+    monkeypatch.setattr(tools.httpx, "post", lambda *a, **k: _FakeResponse(body))
+
+    data = _obs(classify_snippet("A new autonomous drone swarm was demonstrated."))
+    assert data["status"] == "success"
+    assert data["payload"]["category"] == "technology"
+    assert data["payload"]["operational_domain"] == "air"
+
+
+def test_classify_snippet_contract_empty_200_is_error(tmp_path, monkeypatch):
+    _classifier_projects_yaml(tmp_path, monkeypatch)
+    monkeypatch.setattr(tools.httpx, "post", lambda *a, **k: _FakeResponse({}))
+
+    # Must be a returned error observation, not a raised KeyError.
+    data = _obs(classify_snippet("some snippet"))
+    assert data["status"] == "error"
+    assert "SYS-004" in data["summary"]
+
+
+def test_classify_snippet_contract_partial_200_is_error(tmp_path, monkeypatch):
+    _classifier_projects_yaml(tmp_path, monkeypatch)
+    # category present, operational_domain missing -> contract violation.
+    body = {"category": "technology"}
+    monkeypatch.setattr(tools.httpx, "post", lambda *a, **k: _FakeResponse(body))
+
+    data = _obs(classify_snippet("some snippet"))
+    assert data["status"] == "error"
+    assert "operational_domain" in data["summary"]
+
+
+def test_classify_snippet_contract_non_json_200_is_error(tmp_path, monkeypatch):
+    _classifier_projects_yaml(tmp_path, monkeypatch)
+    bad = _FakeResponse(ValueError("no json"), text="not json at all")
+    monkeypatch.setattr(tools.httpx, "post", lambda *a, **k: bad)
+
+    data = _obs(classify_snippet("some snippet"))
+    assert data["status"] == "error"
+    assert "SYS-004" in data["summary"]
+
+
+# --- search_notes: the notes-api read seam -----------------------------------
+# Mirrors the classify_snippet suite: a well-formed 200 yields a SUCCESS
+# observation; every failure path (no endpoint, unreachable, non-200, non-JSON,
+# non-array) yields an ERROR; an empty result is a WARNING. All pass _obs().
+
+
+def _notes_projects_yaml(tmp_path, monkeypatch):
+    """Configure a notes-api endpoint so search_notes reaches the HTTP call."""
+    _write_projects(
+        tmp_path,
+        "projects:\n  - name: notes-api\n    endpoint: http://127.0.0.1:8081\n",
+        monkeypatch,
+    )
+
+
+def test_search_notes_no_endpoint_configured(tmp_path, monkeypatch):
+    _write_projects(tmp_path, "projects:\n  - name: notes-api\n", monkeypatch)
+    data = _obs(search_notes("anything"))
+    assert data["status"] == "error"
+    assert "No endpoint is configured" in data["summary"]
+
+
+def test_search_notes_service_unreachable(tmp_path, monkeypatch):
+    _notes_projects_yaml(tmp_path, monkeypatch)
+
+    def fake_get(*_args, **_kwargs):
+        raise httpx.ConnectError("refused")
+
+    monkeypatch.setattr(tools.httpx, "get", fake_get)
+    data = _obs(search_notes("notes about drones"))
+    assert data["status"] == "error"
+    assert "isn't reachable" in data["summary"]
+    # Recovery contract: a remediation step AND an explicit stop condition.
+    actions = " ".join(data["next_actions"])
+    assert "mvnw" in actions
+    assert "stop" in actions.lower()
+
+
+def test_search_notes_happy_path(tmp_path, monkeypatch):
+    _notes_projects_yaml(tmp_path, monkeypatch)
+    body = [
+        {"id": 1, "title": "Drone doctrine", "content": "UAV ROE", "tags": ["domain:air"]},
+        {"id": 2, "title": "Budget memo", "content": "FY26", "tags": []},
+    ]
+    monkeypatch.setattr(tools.httpx, "get", lambda *a, **k: _FakeResponse(body))
+    data = _obs(search_notes(tag="domain:air"))
+    assert data["status"] == "success"
+    assert [n["id"] for n in data["payload"]] == [1, 2]
+    assert data["payload"][0]["title"] == "Drone doctrine"
+    assert "notes-api service" in data["source"]
+
+
+def test_search_notes_empty_is_warning(tmp_path, monkeypatch):
+    _notes_projects_yaml(tmp_path, monkeypatch)
+    monkeypatch.setattr(tools.httpx, "get", lambda *a, **k: _FakeResponse([]))
+    data = _obs(search_notes("nothing matches", tag="domain:space"))
+    assert data["status"] == "warning"
+    assert any("tag=" in a for a in data["next_actions"])
+
+
+def test_search_notes_non_200_is_error(tmp_path, monkeypatch):
+    _notes_projects_yaml(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        tools.httpx,
+        "get",
+        lambda *a, **k: _FakeResponse([], status_code=500, text="boom"),
+    )
+    data = _obs(search_notes("x"))
+    assert data["status"] == "error"
+    assert "HTTP 500" in data["summary"]
+
+
+def test_search_notes_non_json_200_is_error(tmp_path, monkeypatch):
+    _notes_projects_yaml(tmp_path, monkeypatch)
+    bad = _FakeResponse(ValueError("no json"), text="not json")
+    monkeypatch.setattr(tools.httpx, "get", lambda *a, **k: bad)
+    data = _obs(search_notes("x"))
+    assert data["status"] == "error"
+    assert "isn't valid JSON" in data["summary"]
+
+
+def test_search_notes_non_array_200_is_error(tmp_path, monkeypatch):
+    _notes_projects_yaml(tmp_path, monkeypatch)
+    # notes-api's GET /notes returns a JSON array; an object is a contract violation.
+    monkeypatch.setattr(tools.httpx, "get", lambda *a, **k: _FakeResponse({"oops": 1}))
+    data = _obs(search_notes("x"))
+    assert data["status"] == "error"
+    assert "array" in data["summary"]
+
+
+def test_search_notes_non_note_elements_is_error(tmp_path, monkeypatch):
+    _notes_projects_yaml(tmp_path, monkeypatch)
+    # A non-empty array whose elements aren't note objects is a malformed body —
+    # it must NOT collapse to a success with an empty payload (it's not "no matches").
+    monkeypatch.setattr(tools.httpx, "get", lambda *a, **k: _FakeResponse(["a", "b"]))
+    data = _obs(search_notes("x"))
+    assert data["status"] == "error"
+    assert "aren't note objects" in data["summary"]
