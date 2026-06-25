@@ -24,6 +24,18 @@ jobs:
       - name: Install dependencies
         run: uv sync --python 3.11
 
+      # The integration test (tests/test_kb_roundtrip.py) builds a real ChromaDB,
+      # which downloads the ~80MB all-MiniLM-L6-v2 ONNX model on first use. Cache
+      # ChromaDB's model dir (and the HF cache as a fallback) so it's fetched once
+      # and restored on later runs instead of re-downloaded on every CI run.
+      - name: Cache embedding model
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/chroma
+            ~/.cache/huggingface
+          key: embedding-model-all-MiniLM-L6-v2-v1
+
       - name: Lint
         run: uv run ruff check .
 
