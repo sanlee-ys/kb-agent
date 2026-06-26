@@ -35,8 +35,11 @@ results via ``_success()`` / ``_problem()`` so the shape lives in one place.
 
 from __future__ import annotations
 
+import ipaddress
 import json
+import os
 from pathlib import Path
+from urllib.parse import urlparse
 
 import chromadb
 import httpx
@@ -198,6 +201,65 @@ def _project_endpoint(name: str) -> str | None:
     return None
 
 
+def _is_allowed_host(host: str) -> bool:
+    """Whether an endpoint host may be called by the cross-repo HTTP seams.
+
+    Loopback only by default (these are the user's own local services). Set
+    ``KB_ALLOWED_HOSTS`` (comma-separated hostnames) to widen it without a code
+    change if a service ever runs on another host.
+    """
+    extra = {
+        h.strip().lower()
+        for h in os.environ.get("KB_ALLOWED_HOSTS", "").split(",")
+        if h.strip()
+    }
+    host_l = host.lower()
+    if host_l == "localhost" or host_l in extra:
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _validate_endpoint(name: str, endpoint: str) -> str | None:
+    """Reject unsafe endpoints before any request is made (SSRF guard).
+
+    Endpoints come from projects.yaml, so a poisoned/edited config could point a
+    request at an arbitrary internal host — and these tools send it the snippet
+    body / hand its response back to the model. Restrict to well-formed http(s)
+    URLs on an allowed (loopback-by-default) host.
+
+    Args:
+        name: Project name, for the error message.
+        endpoint: The configured base URL to validate.
+
+    Returns:
+        ``None`` if the endpoint is safe to call, else a SYS-003 error
+        observation (JSON string) explaining why it was rejected.
+    """
+    parsed = urlparse(endpoint)
+    if parsed.scheme not in ("http", "https"):
+        reason = "only http and https URLs are permitted"
+    elif not parsed.hostname:
+        reason = "the URL has no host"
+    elif not _is_allowed_host(parsed.hostname):
+        reason = (
+            f"host {parsed.hostname!r} is not loopback and not in KB_ALLOWED_HOSTS"
+        )
+    else:
+        return None
+    return _problem(
+        "error",
+        f"The endpoint configured for {name!r} ({endpoint!r}) is not allowed: {reason}.",
+        [
+            "Point this project's 'endpoint:' in projects.yaml at an http(s) URL on "
+            "an allowed host (loopback by default; set KB_ALLOWED_HOSTS to widen it).",
+            "Then retry. Do not retry unchanged.",
+        ],
+    )
+
+
 def classify_snippet(text: str) -> str:
     """Classify a defense-news snippet via the classifier's /classify endpoint.
 
@@ -225,6 +287,10 @@ def classify_snippet(text: str) -> str:
                 "projects.yaml, then retry.",
             ],
         )
+
+    invalid = _validate_endpoint(CLASSIFIER_PROJECT, endpoint)
+    if invalid:
+        return invalid
 
     url = endpoint.rstrip("/") + "/classify"
     try:
@@ -345,6 +411,10 @@ def search_notes(query: str | None = None, tag: str | None = None) -> str:
                 "projects.yaml, then retry.",
             ],
         )
+
+    invalid = _validate_endpoint(NOTES_PROJECT, endpoint)
+    if invalid:
+        return invalid
 
     url = endpoint.rstrip("/") + "/notes"
     params: dict[str, str] = {}
