@@ -166,6 +166,77 @@ def test_classify_snippet_happy_path(tmp_path, monkeypatch):
     assert "defense-news-classifier service" in data["source"]
 
 
+# --- SSRF guard: endpoints must be http(s) on an allowed (loopback) host ------
+# projects.yaml is the trust boundary; a poisoned endpoint must be rejected
+# BEFORE any request is made, so these assert no network call happens.
+
+
+def _explode_if_called(*_args, **_kwargs):
+    raise AssertionError("an HTTP request was made despite an invalid endpoint")
+
+
+def test_classify_snippet_rejects_non_loopback_endpoint(tmp_path, monkeypatch):
+    _write_projects(
+        tmp_path,
+        "projects:\n"
+        "  - name: defense-news-classifier\n"
+        "    endpoint: http://attacker.example.com:8000\n",
+        monkeypatch,
+    )
+    monkeypatch.setattr(tools.httpx, "post", _explode_if_called)
+    data = _obs(classify_snippet("text"))
+    assert data["status"] == "error"
+    assert "not allowed" in data["summary"]
+
+
+def test_classify_snippet_rejects_non_http_scheme(tmp_path, monkeypatch):
+    _write_projects(
+        tmp_path,
+        "projects:\n"
+        "  - name: defense-news-classifier\n"
+        "    endpoint: file:///etc/passwd\n",
+        monkeypatch,
+    )
+    monkeypatch.setattr(tools.httpx, "post", _explode_if_called)
+    data = _obs(classify_snippet("text"))
+    assert data["status"] == "error"
+    assert "not allowed" in data["summary"]
+
+
+def test_search_notes_rejects_non_loopback_endpoint(tmp_path, monkeypatch):
+    _write_projects(
+        tmp_path,
+        "projects:\n  - name: notes-api\n    endpoint: http://169.254.169.254\n",
+        monkeypatch,
+    )
+    monkeypatch.setattr(tools.httpx, "get", _explode_if_called)
+    data = _obs(search_notes("anything"))
+    assert data["status"] == "error"
+    assert "not allowed" in data["summary"]
+
+
+def test_allowed_hosts_env_widens_the_allowlist(tmp_path, monkeypatch):
+    monkeypatch.setenv("KB_ALLOWED_HOSTS", "notes.internal")
+    _write_projects(
+        tmp_path,
+        "projects:\n  - name: notes-api\n    endpoint: http://notes.internal:8081\n",
+        monkeypatch,
+    )
+
+    class FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return []
+
+    monkeypatch.setattr(tools.httpx, "get", lambda *a, **k: FakeResponse())
+    # Empty list -> warning (not error): proves the endpoint passed validation and
+    # the request was actually made.
+    data = _obs(search_notes("x"))
+    assert data["status"] == "warning"
+
+
 # --- Frozen /classify contract (SYS-004) -------------------------------------
 # The /classify contract is frozen: a 200 must carry a JSON object with both
 # `category` and `operational_domain`. These tests pin both ends of that — a
