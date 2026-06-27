@@ -431,7 +431,8 @@ def search_notes(query: str | None = None, tag: str | None = None) -> str:
             "error",
             f"The {NOTES_PROJECT} service isn't reachable at {endpoint}.",
             [
-                "Start it from that project's directory: ./mvnw spring-boot:run "
+                "Start it from that project's directory: "
+                "uvicorn notes_api.main:app --port 8081 "
                 "(it serves on http://localhost:8081).",
                 "Then retry search_notes. If it's still unreachable after starting, "
                 "stop and tell the user rather than retrying further.",
@@ -665,5 +666,6 @@ if __name__ == "__main__":
         classify_snippet("The Pentagon awarded a $4.2B contract for 24 F-35 fighters."),
     )
     # If the notes-api service isn't running, this prints an error observation with
-    # next_actions (the "start it with ./mvnw spring-boot:run" path) rather than raising.
+    # next_actions (the "start it with uvicorn notes_api.main:app --port 8081" path)
+    # rather than raising.
     _show("search_notes('drone'):", search_notes("drone"))
