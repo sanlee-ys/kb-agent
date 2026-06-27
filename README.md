@@ -2,12 +2,12 @@
 
 ![CI](https://github.com/sanlee-ys/kb-agent/actions/workflows/ci.yml/badge.svg)
 
-A personal, living knowledge base over your projects and the libraries you use —
-with an AI agent you can ask questions, answered with RAG + tool use.
+A personal, living knowledge base over my projects and the libraries they use —
+with an AI agent that answers questions about them using RAG + tool use.
 
-Point it at your project directories; it auto-generates Markdown stubs for each
-project and dependency, embeds them into a local vector store, and serves an
-agent that searches that KB to answer your questions.
+Point it at my project directories (listed in `projects.yaml`); it auto-generates
+Markdown stubs for each project and dependency, embeds them into a local vector
+store, and serves an agent that searches that KB to answer questions.
 
 ## How it works
 
