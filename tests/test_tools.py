@@ -346,7 +346,7 @@ def test_search_notes_service_unreachable(tmp_path, monkeypatch):
     assert "isn't reachable" in data["summary"]
     # Recovery contract: a remediation step AND an explicit stop condition.
     actions = " ".join(data["next_actions"])
-    assert "mvnw" in actions
+    assert "uvicorn" in actions
     assert "stop" in actions.lower()
 
 
