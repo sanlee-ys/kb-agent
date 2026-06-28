@@ -31,3 +31,6 @@ constraint-dependencies = [
 # namespace packages without an installed package or __init__.py files.
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+    "integration: real-boundary test — builds a real ChromaDB and loads the embedding model. Runs by default; exclude with -m 'not integration'.",
+]

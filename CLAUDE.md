@@ -28,15 +28,20 @@ uv run python app.py                      # Gradio chat UI at http://127.0.0.1:7
 uv run python agent/agent.py              # CLI chat loop
 
 uv run python agent/tools.py              # manual smoke test of the tools
-uv run pytest                             # run the test suite (offline; no API key needed)
+uv run pytest                             # run the test suite (no API key needed)
 uv run ruff check .                       # lint
 ```
 
-Tests live in `tests/` (`test_tools.py`, `test_index.py`, `test_ingest.py`) and run
-offline — no API key, no network. `tests/test_tools.py` includes `_obs()`, a grader that
-asserts every tool result conforms to the SYS-003 observation shape. CI
-(`.github/workflows/ci.yml`) runs ruff + the test suite on push and PR.
-The `__main__` blocks (`agent/tools.py`, `agent/agent.py`) also double as smoke tests.
+Tests live in `tests/` (`test_tools.py`, `test_index.py`, `test_ingest.py`,
+`test_kb_roundtrip.py`). Most run offline — no API key, no network — and
+`tests/test_tools.py` includes `_obs()`, a grader that asserts every tool result conforms
+to the SYS-003 observation shape. The exception is `test_kb_roundtrip.py`, marked
+`@pytest.mark.integration`: it builds a **real ChromaDB** in a temp dir and runs the
+index→`search_kb` round-trip, so it loads the local `all-MiniLM-L6-v2` embedding model
+(downloaded once, ~80MB, the first time on any machine). It runs by default; skip it for
+the fast loop with `uv run pytest -m "not integration"`. CI (`.github/workflows/ci.yml`)
+runs ruff + the test suite (including the integration test) on push and PR. The `__main__`
+blocks (`agent/tools.py`, `agent/agent.py`) also double as smoke tests.
 
 ## Architecture
 
