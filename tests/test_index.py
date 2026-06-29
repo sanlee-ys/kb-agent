@@ -7,7 +7,6 @@ manual smoke run.
 from __future__ import annotations
 
 import httpx
-import pytest
 
 import scripts.index as index
 from scripts.index import MAX_CHUNK_CHARS, chunk_markdown
