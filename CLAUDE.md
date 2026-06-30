@@ -61,7 +61,7 @@ projects.yaml → ingest.py → kb/*.md → index.py → chroma_db/ → tools.se
    `knowledge_base` using the **built-in local `all-MiniLM-L6-v2` model — no API key,
    no network**. The collection is dropped and rebuilt from scratch each run, so
    deleted/renamed KB files leave no stale chunks. Chunk metadata carries
-   `source` (repo-relative path), `kind` (`projects`/`libraries`), and `name`.
+   `source` (repo-relative path), `kind` (`projects`/`libraries`/`notes`), and `name`.
 3. **`agent/tools.py`** exposes four tools to the model: `search_kb(query, kind?,
    n_results?)` (semantic query over ChromaDB, optional `kind` filter) and
    `list_projects()` (reads `projects.yaml`) are both local; the other two are
