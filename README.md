@@ -15,11 +15,11 @@ store, and serves an agent that searches that KB to answer questions.
 projects.yaml ──▶ ingest.py ──▶ kb/*.md ──▶ index.py ──▶ ChromaDB (local)
                   (Anthropic)   (you edit)   (local embeds)        │
                                                                    ▼
-                                              agent.py ──▶ search_kb · list_projects
-                                              (Claude tool-use loop)      · classify_snippet
-                                                                                  │ HTTP
-                                                                                  ▼
-                                                          defense-news-classifier /classify
+                          agent.py ──▶ search_kb · list_projects · classify_snippet · search_notes
+                          (Claude tool-use loop)                          │ HTTP
+                                                          ┌───────────────┴───────────────┐
+                                                          ▼                               ▼
+                                          defense-news-classifier /classify        notes-api /notes
 ```
 
 - **`scripts/ingest.py`** — reads each project's `pyproject.toml`/`requirements.txt`
@@ -27,13 +27,15 @@ projects.yaml ──▶ ingest.py ──▶ kb/*.md ──▶ index.py ──▶
   files (so your hand-annotations survive), unless you pass `--force`.
 - **`scripts/index.py`** — chunks `kb/*.md` and embeds them into a local ChromaDB
   collection using the built-in `all-MiniLM-L6-v2` model (no API key, runs locally).
-- **`agent/tools.py`** — the `search_kb` (RAG), `list_projects`, and
-  `classify_snippet` tools. The first two are local; `classify_snippet` is the
-  "ecosystem" seam — it calls a *tracked project's own HTTP service* (the
-  defense-news-classifier's `/classify` endpoint) so the agent can **drive** a
-  project, not just describe it. Which projects are callable is config: add an
-  `endpoint:` to a project's `projects.yaml` entry. The tool fails gracefully —
-  if the service is down, it tells you how to start it instead of crashing.
+- **`agent/tools.py`** — four tools. `search_kb` (RAG over the local KB) and
+  `list_projects` are local; `classify_snippet` and `search_notes` are the
+  *ecosystem* seams — they call a *tracked project's own HTTP service* so the agent can
+  **drive and read** a project, not just describe it: `classify_snippet` POSTs to the
+  defense-news-classifier's `/classify` endpoint, and `search_notes` GETs the
+  notes-api's `/notes` endpoint to read your live notes. Which services are callable is
+  config: add an `endpoint:` to a project's `projects.yaml` entry. The seams fail
+  gracefully — if a service is down, the tool tells you how to start it instead of
+  crashing.
 - **`agent/agent.py`** — a manual Claude tool-use loop: the model decides when to
   search the KB and answers from what it finds.
 
@@ -94,8 +96,8 @@ crashing.
 
 ## Status
 
-v1 — local KB with a RAG/tool-use agent (Gradio chat UI + CLI), now with a first
-cross-project **ecosystem seam**: the agent can call a tracked project's HTTP
-service (defense-news-classifier) through the `classify_snippet` tool. Tools follow a
-shared observation contract (`system/SYS-003`) and have an offline test suite
+v1 — local KB with a RAG/tool-use agent (Gradio chat UI + CLI), now with cross-project
+**ecosystem seams**: the agent can call a tracked project's HTTP service — the
+defense-news-classifier (`classify_snippet`) and the notes-api (`search_notes`). Tools
+follow a shared observation contract (`system/SYS-003`) and have an offline test suite
 (`uv run pytest`).

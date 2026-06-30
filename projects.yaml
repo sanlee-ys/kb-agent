@@ -1,6 +1,6 @@
 projects:
   - name: defense-news-classifier
-    path: C:\Users\sanle\OneDrive\Desktop\Claude Code Projects\defense-news-classifier
+    path: C:\Users\sanle\code\defense-news-classifier
     description: NLP pipeline for classifying defense-related news articles
     # Optional: if a project runs an HTTP service, list its base URL here. That
     # makes the project *callable* by the agent (see classify_snippet in tools.py),
@@ -8,7 +8,7 @@ projects:
     #   uv run --env-file .env uvicorn api:app --app-dir src
     endpoint: http://127.0.0.1:8000
   - name: notes-api
-    path: C:\Users\sanle\OneDrive\Desktop\Claude Code Projects\notes-api
+    path: C:\Users\sanle\code\notes-api
     description: Python/FastAPI notes REST API (CRUD, tags, search; async tag enrichment via BackgroundTasks)
     # The agent reads notes from this service over HTTP (see search_notes in
     # tools.py). Start it with, from the notes-api directory:
@@ -19,4 +19,4 @@ projects:
 # generated KB. These live outside this repo (and outside git) on purpose;
 # index.py reads them at index time and tags their chunks with kind: "notes".
 notes_dirs:
-  - C:\Users\sanle\OneDrive\Desktop\Claude Code Projects\learning-notes
+  - C:\Users\sanle\code\learning-notes
