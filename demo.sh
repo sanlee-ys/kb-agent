@@ -84,7 +84,7 @@ wait_for_health "${CLASSIFIER_URL}/health" "classifier"
 # --- 2. notes-api (with enrichment wired to the classifier) ------------------
 echo "==> [2/5] Starting notes-api on :${NOTES_API_PORT} (CLASSIFIER_URL=${CLASSIFIER_URL}) ..."
 ( cd "$NOTES_API_DIR" && CLASSIFIER_URL="$CLASSIFIER_URL" \
-    uv run uvicorn notes_api.main:app --app-dir src --port "$NOTES_API_PORT" ) &
+    uv run uvicorn notes_api.main:app --port "$NOTES_API_PORT" ) &
 PIDS+=("$!")
 wait_for_health "${NOTES_API_URL}/notes" "notes-api"
 
