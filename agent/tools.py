@@ -207,6 +207,11 @@ def _is_allowed_host(host: str) -> bool:
     Loopback only by default (these are the user's own local services). Set
     ``KB_ALLOWED_HOSTS`` (comma-separated hostnames) to widen it without a code
     change if a service ever runs on another host.
+
+    Security note: widening this allowlist raises the tool-seam threat model's
+    severity ceiling (exfiltration re-enters scope) — see
+    ``docs/notes/tool-seam-threat-model.md`` and ``architecture/SYS-010`` rule 3
+    before doing so.
     """
     extra = {
         h.strip().lower()
