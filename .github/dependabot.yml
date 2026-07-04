@@ -1,0 +1,32 @@
+# Dependabot: automated dependency-update PRs.
+# https://docs.github.com/code-security/dependabot/dependabot-version-updates
+#
+# NOTE: this file only enables *version updates* (scheduled PRs). The security
+# side — Dependabot alerts + automatic security-fix PRs against the CVE/GHSA
+# database — is a repo Settings > Code security toggle (free), not config here.
+version: 2
+updates:
+  # Python deps — uv-managed (pyproject.toml + uv.lock).
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    groups:
+      python-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # Keep GitHub Actions patched — a pinned-but-stale action is a real
+  # supply-chain surface.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    groups:
+      github-actions:
+        update-types: ["minor", "patch"]
