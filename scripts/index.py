@@ -245,6 +245,11 @@ def main() -> None:
         console.print("[yellow]No Markdown files found under kb/. Run ingest.py first.[/yellow]")
         return
 
+    # Embedded PersistentClient only — never HttpClient/server mode, and the
+    # collection is always rebuilt fresh from locally-generated kb/ content, never
+    # from an external/untrusted source. Both are load-bearing for CVE-2026-45829's
+    # risk assessment; see docs/notes/chromadb-cve-2026-45829-assessment.md before
+    # changing how this client is opened or how the collection is populated.
     client = chromadb.PersistentClient(path=str(CHROMA_DIR))
 
     # Rebuild from scratch so deletions/renames don't leave stale chunks.

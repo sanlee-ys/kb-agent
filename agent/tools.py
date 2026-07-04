@@ -93,6 +93,9 @@ def _get_collection():
         The ChromaDB collection, or None if the store directory doesn't exist
         yet or the collection hasn't been created.
     """
+    # Embedded PersistentClient only — never HttpClient/server mode. This is load-
+    # bearing for CVE-2026-45829's risk assessment; see docs/notes/
+    # chromadb-cve-2026-45829-assessment.md before changing how this client is opened.
     if not CHROMA_DIR.exists():
         return None
     client = chromadb.PersistentClient(path=str(CHROMA_DIR))
