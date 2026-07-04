@@ -29,7 +29,7 @@ jobs:
       # ChromaDB's model dir (and the HF cache as a fallback) so it's fetched once
       # and restored on later runs instead of re-downloaded on every CI run.
       - name: Cache embedding model
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cache/chroma
