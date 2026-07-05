@@ -18,14 +18,11 @@ dependencies = [
 [dependency-groups]
 dev = ["ruff", "pytest>=8.0"]
 
+[tool.ruff]
+line-length = 100
+
 [tool.ruff.lint]
-# "E" (pycodestyle errors) is intentionally dropped: enabling it surfaces 12
-# pre-existing E501 (line-too-long) violations across agent/tools.py,
-# scripts/index.py, scripts/ingest.py, and tests/test_tools.py. Fixing those
-# means wrapping code/strings, not docstring or import changes, so it's out of
-# scope for this docstring-enforcement PR. Revisit "E" adoption as its own
-# follow-up.
-select = ["F", "I", "D"]
+select = ["E", "F", "I", "D"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

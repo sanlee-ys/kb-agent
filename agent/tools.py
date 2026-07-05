@@ -556,7 +556,10 @@ TOOLS = [
                 "kind": {
                     "type": "string",
                     "enum": ["projects", "libraries", "notes"],
-                    "description": "Optional filter: restrict to projects, libraries, or concept notes.",
+                    "description": (
+                        "Optional filter: restrict to projects, libraries, "
+                        "or concept notes."
+                    ),
                 },
                 "n_results": {
                     "type": "integer",
