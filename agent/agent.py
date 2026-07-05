@@ -64,6 +64,14 @@ class KBAgent:
     """Stateful chat agent that retains conversation history across turns."""
 
     def __init__(self, model: str | None = None, system: str = SYSTEM_PROMPT):
+        """Load the environment and set up a fresh conversation.
+
+        Args:
+            model: Anthropic model id to use. Defaults to the KB_AGENT_MODEL
+                env var if set, else DEFAULT_MODEL.
+            system: System prompt for the conversation. Defaults to
+                SYSTEM_PROMPT.
+        """
         load_dotenv(REPO_ROOT / ".env")
         self.client = anthropic.Anthropic()
         # Precedence: explicit arg > KB_AGENT_MODEL env var (read after .env is
