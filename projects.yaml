@@ -5,7 +5,7 @@ projects:
     # Optional: if a project runs an HTTP service, list its base URL here. That
     # makes the project *callable* by the agent (see classify_snippet in tools.py),
     # not just searchable. Start this one with, from the classifier's directory:
-    #   uv run --env-file .env uvicorn api:app --app-dir src
+    #   uv run --env-file .env uvicorn api:app --app-dir src --host 127.0.0.1 --port 8000
     endpoint: http://127.0.0.1:8000
   - name: notes-api
     path: C:\Users\sanle\code\notes-api
