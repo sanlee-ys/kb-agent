@@ -310,7 +310,8 @@ def classify_snippet(text: str) -> str:
             f"The {CLASSIFIER_PROJECT} service isn't reachable at {endpoint}.",
             [
                 "Start it from that project's directory: "
-                "uv run --env-file .env uvicorn api:app --app-dir src",
+                "uv run --env-file .env uvicorn api:app --app-dir src "
+                "--host 127.0.0.1 --port 8000",
                 "Then retry classify_snippet. If it's still unreachable after "
                 "starting, stop and tell the user rather than retrying further.",
             ],
