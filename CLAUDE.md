@@ -111,21 +111,8 @@ projects.yaml → ingest.py → kb/*.md → index.py → chroma_db/ → tools.se
 - `projects.yaml` `path` values are absolute on the author's machine (Windows paths);
   `ingest.py` skips entries whose path doesn't exist.
 
+<!-- shared:links-verify v1 -->
 ## Links — verify before sending (hard rule)
 
-Added 2026-07-04 after repeated 404s from links given in chat. Any clickable
-reference given to the user must actually resolve:
-
-1. **Full URLs only.** Point at files with the complete
-   `https://github.com/<owner>/<repo>/blob/<ref>/<path>` URL — never a
-   local-clone path like `<repo-folder>/materials/foo.md`, whose leading
-   repo-folder segment doubles when pasted after a GitHub branch URL and 404s.
-2. **Verify before sending.** Confirm the exact path exists on the exact ref
-   before linking (e.g. GitHub MCP `get_file_contents`, or `git ls-tree
-   origin/<branch> -- <path>` after a confirmed push). Unverified links do not
-   get sent — say "unverified" instead.
-3. **Branch links are perishable.** A `blob/<feature-branch>` URL dies when the
-   branch merges and is deleted. Flag branch-scoped links as such; prefer
-   `main` URLs once the work has merged.
-
-If a link 404s, the failure mode was here — fix the process, not just the link.
+Links given in chat must resolve: **full `github.com/<owner>/<repo>/blob/<ref>/<path>` URLs only**, **verify the path exists on the ref before sending** (unverified → say so), and **branch links are perishable** (prefer `main` once merged). Full rule + rationale: [claude-ops `conventions/links-verify.md`](https://github.com/sanlee-ys/claude-ops/blob/main/conventions/links-verify.md).
+<!-- /shared:links-verify -->
