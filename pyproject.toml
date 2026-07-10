@@ -13,6 +13,9 @@ dependencies = [
     "httpx>=0.27.0",
     "rich>=13.0.0",
     "python-dotenv>=1.0.0",
+    # Server-side MCP SDK for mcp_server/server.py. Not the `[cli]` extra: nothing
+    # here imports mcp.cli, and `uvx mcp dev` covers the inspector when it's wanted.
+    "mcp>=1.28.1",
 ]
 
 [dependency-groups]
