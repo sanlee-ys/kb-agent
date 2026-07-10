@@ -30,10 +30,14 @@ uv run python agent/agent.py              # CLI chat loop
 uv run python agent/tools.py              # manual smoke test of the tools
 uv run pytest                             # run the test suite (no API key needed)
 uv run ruff check .                       # lint
+
+# MCP server (stdio; exposes search_kb + list_projects to any MCP host):
+uv run python mcp_server/server.py        # speaks JSON-RPC on stdin/stdout — nothing to see
+claude mcp list                           # check it's registered and Connected
 ```
 
 Tests live in `tests/` (`test_tools.py`, `test_index.py`, `test_ingest.py`,
-`test_kb_roundtrip.py`). Most run offline — no API key, no network — and
+`test_kb_roundtrip.py`, `test_mcp_server.py`). Most run offline — no API key, no network — and
 `tests/test_tools.py` includes `_obs()`, a grader that asserts every tool result conforms
 to the SYS-003 observation shape. The exception is `test_kb_roundtrip.py`, marked
 `@pytest.mark.integration`: it builds a **real ChromaDB** in a temp dir and runs the
@@ -42,6 +46,11 @@ index→`search_kb` round-trip, so it loads the local `all-MiniLM-L6-v2` embeddi
 the fast loop with `uv run pytest -m "not integration"`. CI (`.github/workflows/ci.yml`)
 runs ruff + the test suite (including the integration test) on push and PR. The `__main__`
 blocks (`agent/tools.py`, `agent/agent.py`) also double as smoke tests.
+
+`tests/test_mcp_server.py` drives the MCP server through a real in-memory client session
+(`initialize` → `tools/list` → `tools/call`), so the protocol hop itself is under test, not
+just the underlying functions. Its tests are sync functions that call `anyio.run(...)` —
+`anyio` is already a hard dependency of `mcp`, so the suite needs no async pytest plugin.
 
 ## Architecture
 
@@ -84,6 +93,12 @@ projects.yaml → ingest.py → kb/*.md → index.py → chroma_db/ → tools.se
 5. **`app.py`** wraps `KBAgent` in a `gr.ChatInterface`. Gradio owns history; each turn
    rebuilds a fresh `KBAgent` from the `{"role","content"}` history (text answers only —
    per-turn tool calls are not replayed).
+6. **`mcp_server/server.py`** is a **second transport over the same tools**, not a second
+   implementation: a `FastMCP` server (stdio) that exposes the two *local* tools,
+   `search_kb` and `list_projects`, to any MCP host. It calls `agent/tools.py` and returns
+   its SYS-003 observation JSON **unchanged**, and it reads the tool descriptions out of
+   `TOOLS` rather than retyping them. The HTTP-seam tools are deliberately excluded — they
+   need another service running, which would make the server a bad install.
 
 ## Conventions
 
@@ -96,7 +111,13 @@ projects.yaml → ingest.py → kb/*.md → index.py → chroma_db/ → tools.se
 - **Paths**: every module resolves `REPO_ROOT = Path(__file__).resolve().parent.parent`
   and builds paths from it, so scripts work regardless of CWD. `agent/agent.py` uses a
   `try/except ImportError` shim so it runs both as `python agent/agent.py` and as an
-  `import agent.agent`.
+  `import agent.agent`. `mcp_server/server.py` instead prepends `REPO_ROOT` to `sys.path`
+  before importing `agent.tools`, because an MCP host launches it by absolute path from an
+  arbitrary CWD.
+- **The tool layer has one home.** `agent/tools.py` owns the tool functions *and* their
+  descriptions; both the Anthropic tool-use loop and the MCP server consume them. Never
+  reimplement a tool or retype a description in `mcp_server/` — the SYS-003 observation is
+  the wire format for both transports, and a fork there would silently drift.
 - `.env` is loaded via `python-dotenv` from `REPO_ROOT / ".env"`; the Anthropic client
   is constructed with no args and reads `ANTHROPIC_API_KEY` from the environment.
 - `chroma_db/` is generated and git-ignored — never commit it; rebuild with `index.py`.

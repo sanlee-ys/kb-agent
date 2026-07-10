@@ -38,6 +38,8 @@ projects.yaml ──▶ ingest.py ──▶ kb/*.md ──▶ index.py ──▶
   crashing.
 - **`agent/agent.py`** — a manual Claude tool-use loop: the model decides when to
   search the KB and answers from what it finds.
+- **`mcp_server/server.py`** — the same local tools, served over the Model Context
+  Protocol so any MCP host can query the KB. See [MCP server](#mcp-server).
 
 ## Setup
 
@@ -94,9 +96,71 @@ $4.2B contract for 24 F-35s"*) and it routes through `classify_snippet` to that
 service. If the service isn't up, the tool returns this start command rather than
 crashing.
 
+## MCP server
+
+The KB is also exposed as a [Model Context Protocol](https://modelcontextprotocol.io)
+server, so any MCP host (Claude Code, Claude Desktop, ...) can search this knowledge
+base directly — without going through `agent.py`.
+
+It's a thin **transport adapter**, not a second implementation: `mcp_server/server.py`
+calls the same functions in `agent/tools.py` and returns their SYS-003 observation
+JSON unchanged. The tool *descriptions* are read out of `TOOLS` too, so the wording
+that steers tool selection can't drift between the two transports.
+
+**Tools exposed** (stdio transport):
+
+| Tool | Arguments | What it does |
+| --- | --- | --- |
+| `search_kb` | `query`, `kind?` (`projects`\|`libraries`\|`notes`), `n_results?` (1–25, default 5) | Semantic search over the local ChromaDB index; returns matching chunks with their `source` files. |
+| `list_projects` | — | Lists the projects tracked in `projects.yaml`. |
+
+Only the two **local** tools are exposed. `classify_snippet` and `search_notes` are
+cross-repo HTTP seams that need another service running; an MCP server that quietly
+depends on two background processes is a bad install, so they're out of scope for now.
+
+Run it standalone (it speaks JSON-RPC on stdin/stdout, so there's nothing to see —
+this is mostly to check it starts):
+
+```bash
+uv run python mcp_server/server.py
+```
+
+Register it with Claude Code (run `scripts/index.py` first, or `search_kb` will
+correctly tell you the KB isn't indexed yet):
+
+```bash
+claude mcp add kb-agent --scope user -- \
+  uv run --directory /absolute/path/to/kb-agent python mcp_server/server.py
+```
+
+Then confirm it's up and start using it:
+
+```bash
+claude mcp list        # -> kb-agent: ... - ✔ Connected
+```
+
+For Claude Desktop, add the equivalent to `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "kb-agent": {
+      "command": "uv",
+      "args": ["run", "--directory", "/absolute/path/to/kb-agent",
+               "python", "mcp_server/server.py"]
+    }
+  }
+}
+```
+
+`--directory` matters: an MCP host launches the server from an arbitrary working
+directory, and it tells `uv` which project's environment to use. The server itself
+resolves the repo root from `__file__`, so the KB and index are found either way.
+
 ## Status
 
-v1 — local KB with a RAG/tool-use agent (Gradio chat UI + CLI), now with cross-project
+v1 — local KB with a RAG/tool-use agent (Gradio chat UI + CLI), an MCP server over the
+same tools, now with cross-project
 **ecosystem seams**: the agent can call a tracked project's HTTP service — the
 defense-news-classifier (`classify_snippet`) and the notes-api (`search_notes`). Tools
 follow a shared observation contract (`system/SYS-003`) and have an offline test suite
