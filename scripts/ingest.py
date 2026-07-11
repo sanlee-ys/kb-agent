@@ -37,7 +37,7 @@ KB_LIBRARIES = REPO_ROOT / "kb" / "libraries"
 
 # SYS-002 model-tier standard: the Sonnet workhorse is the default for stub
 # generation; bump this only if an eval shows a stronger tier writes better stubs.
-MODEL = "claude-sonnet-4-6"
+MODEL = "claude-sonnet-5"
 
 console = Console()
 

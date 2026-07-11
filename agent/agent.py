@@ -31,7 +31,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # stronger tier only where a task needs it. Override per run without code changes
 # via the KB_AGENT_MODEL env var (e.g. KB_AGENT_MODEL=claude-opus-4-8), or per
 # instance with KBAgent(model=...).
-DEFAULT_MODEL = "claude-sonnet-4-6"
+DEFAULT_MODEL = "claude-sonnet-5"
 MAX_TOOL_ITERATIONS = 10  # safety cap on the tool-use loop
 
 SYSTEM_PROMPT = """You are a knowledge-base assistant for a developer's personal \

@@ -102,7 +102,7 @@ projects.yaml → ingest.py → kb/*.md → index.py → chroma_db/ → tools.se
 
 ## Conventions
 
-- **Model**: defaults to the `claude-sonnet-4-6` workhorse per the SYS-002 model-tier
+- **Model**: defaults to the `claude-sonnet-5` workhorse per the SYS-002 model-tier
   standard (default to Sonnet; escalate only where a task needs it). It's a constant in
   each module that calls the API — `DEFAULT_MODEL` in `agent/agent.py`, `MODEL` in
   `scripts/ingest.py` (update both together). Escalate the agent without code changes via
