@@ -15,7 +15,18 @@ Four tools:
 Each tool is a plain Python function. The JSON schemas the model sees live in
 TOOLS, and execute_tool() dispatches a tool-use request to the right function.
 Keeping schemas explicit (rather than auto-generated) makes the tool-use loop in
-agent.py easy to follow and doesn't depend on the SDK's beta tool runner.
+agent.py easy to follow and doesn't depend on the SDK's beta tool runner. A
+working spike (2026-07-11, against ``anthropic`` 0.116.0) built the alternative
+for real — ``client.beta.messages.tool_runner`` with ``@beta_tool``-decorated
+functions — and it was rejected on measured grounds: net line count went *up*
+(~25 lines of loop removed, ~40 lines of wrapper added, so the "less code"
+premise didn't hold), and the decorator's auto-generated schema for
+``search_kb``'s ``kind`` silently dropped its enum constraint
+(``["projects", "libraries", "notes"]``) — every safe fix either passes an
+explicit ``input_schema`` override (defeating the decorator's whole point) or
+triples the places that enum is duplicated. Revisit only if the SDK ever lets
+you supply an existing schema dict + description without duplication, i.e. once
+auto-generation and the single-source-of-truth convention stop being in tension.
 
 Observation contract (architecture/SYS-003)
 --------------------------------------------
