@@ -100,6 +100,12 @@ projects.yaml → ingest.py → kb/*.md → index.py → chroma_db/ → tools.se
    `TOOLS` rather than retyping them. The HTTP-seam tools are deliberately excluded — they
    need another service running, which would make the server a bad install.
 
+**Known staleness risk:** `kb/projects/kb-agent.md` (kb-agent's self-description in its own
+KB, added so `search_kb` can answer questions about the MCP server) is hand-written and sits
+outside `ingest.py`'s pipeline — there's no self-referential-project path, so nothing
+regenerates it. If `mcp_server/server.py` or the tool layer changes materially, update that
+stub by hand and rerun `scripts/index.py`, or it'll quietly drift from the code it describes.
+
 ## Conventions
 
 - **Model**: defaults to the `claude-sonnet-4-6` workhorse per the SYS-002 model-tier
