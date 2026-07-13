@@ -11,7 +11,12 @@ from __future__ import annotations
 
 import json
 
-from agent.agent import _search_kb_tool_result_content
+from agent.agent import (
+    CACHE_CONTROL,
+    _cached_system,
+    _messages_with_cache_marker,
+    _search_kb_tool_result_content,
+)
 from agent.tools import search_kb
 
 
@@ -84,6 +89,63 @@ def test_success_with_empty_text_chunk_is_skipped():
     # non-empty); with no usable chunks left, fall back to the raw observation.
     obs = _success([{"source": "kb/notes/empty.md", "text": ""}])
     assert _search_kb_tool_result_content(obs) == obs
+
+
+def test_cached_system_wraps_prompt_with_breakpoint():
+    blocks = _cached_system("hello system")
+    # One text block carrying the prompt and exactly one ephemeral cache breakpoint.
+    assert blocks == [
+        {"type": "text", "text": "hello system", "cache_control": CACHE_CONTROL}
+    ]
+
+
+def test_cache_marker_promotes_string_content_to_marked_block():
+    messages = [{"role": "user", "content": "what is spaCy?"}]
+    marked = _messages_with_cache_marker(messages)
+    # The bare string is promoted to a text block carrying the breakpoint...
+    assert marked[-1]["content"] == [
+        {"type": "text", "text": "what is spaCy?", "cache_control": CACHE_CONTROL}
+    ]
+    # ...without mutating the caller's history (stays a clean transcript).
+    assert messages[-1]["content"] == "what is spaCy?"
+
+
+def test_cache_marker_marks_last_block_of_tool_result_batch():
+    messages = [
+        {"role": "user", "content": "q"},
+        {"role": "assistant", "content": [{"type": "text", "text": "thinking"}]},
+        {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "a", "content": "one"},
+                {"type": "tool_result", "tool_use_id": "b", "content": "two"},
+            ],
+        },
+    ]
+    marked = _messages_with_cache_marker(messages)
+    last_blocks = marked[-1]["content"]
+    # Only the final block gets the breakpoint; earlier blocks are untouched.
+    assert "cache_control" not in last_blocks[0]
+    assert last_blocks[-1]["cache_control"] == CACHE_CONTROL
+    assert last_blocks[-1]["tool_use_id"] == "b"
+    # Earlier messages and the caller's list are left unmutated.
+    assert "cache_control" not in messages[-1]["content"][-1]
+    assert marked[0] is messages[0]
+
+
+def test_cache_marker_stays_within_two_breakpoints():
+    # System block = 1 breakpoint; the marker adds exactly 1 more, well under the
+    # 4-per-request cap, regardless of how long the transcript grows.
+    messages = [{"role": "user", "content": [{"type": "text", "text": f"m{i}"} for i in range(20)]}]
+    marked = _messages_with_cache_marker(messages)
+    n_marks = sum(
+        1 for b in marked[-1]["content"] if b.get("cache_control") == CACHE_CONTROL
+    )
+    assert n_marks == 1
+
+
+def test_cache_marker_empty_messages_unchanged():
+    assert _messages_with_cache_marker([]) == []
 
 
 def test_not_indexed_search_kb_result_passes_through(tmp_path, monkeypatch):
