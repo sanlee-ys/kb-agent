@@ -34,6 +34,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_MODEL = "claude-sonnet-5"
 MAX_TOOL_ITERATIONS = 10  # safety cap on the tool-use loop
 
+# Prompt-caching breakpoint. The loop re-sends system + tools + the whole growing
+# transcript on every one of its up-to-MAX_TOOL_ITERATIONS passes; marking the stable
+# prefixes with an ephemeral (5-minute) breakpoint lets those tokens read back from
+# cache at ~10% of input price instead of being reprocessed in full each pass.
+CACHE_CONTROL = {"type": "ephemeral"}
+
 SYSTEM_PROMPT = """You are a knowledge-base assistant for a developer's personal \
 collection of projects, the libraries they use, and plain-language concept notes.
 
@@ -117,6 +123,66 @@ def _search_kb_tool_result_content(observation: str):
     return blocks or observation
 
 
+def _cached_system(system: str) -> list[dict]:
+    """Wrap the system prompt as a single content block with a cache breakpoint.
+
+    One ``cache_control`` breakpoint on the system block caches the entire static
+    prefix that precedes the conversation — the tool schemas *and* the system
+    prompt — because the API renders the prefix in ``tools -> system -> messages``
+    order and a breakpoint caches everything up to and including its own block. That
+    prefix is byte-for-byte identical on every iteration of a single ``ask()``, so
+    after the first request it reads from cache instead of being re-tokenized.
+
+    Args:
+        system: The plain-text system prompt.
+
+    Returns:
+        A one-element content-block list carrying the ephemeral cache breakpoint.
+    """
+    return [{"type": "text", "text": system, "cache_control": CACHE_CONTROL}]
+
+
+def _messages_with_cache_marker(messages: list[dict]) -> list[dict]:
+    """Copy ``messages`` with a cache marker on the final message's last block.
+
+    The tool-use loop re-sends the whole (growing) transcript each iteration. A
+    second breakpoint on the last content block of the last message caches that
+    transcript prefix, so the next iteration — which appends the model's turn plus
+    the tool results and re-sends everything before them — re-reads the prior
+    transcript from cache rather than reprocessing it at full price. Only the final
+    message is marked (the marker moves to the new tail each turn), so with the
+    system breakpoint we use 2 of the 4 breakpoints allowed per request.
+
+    The copy is shallow and deliberate: ``self.messages`` stays free of
+    ``cache_control`` so the stored history is a clean transcript and the marker can
+    be re-placed on the new tail next iteration. At call time the last message is
+    always a user turn — the initial question (string content) or a tool_result
+    batch (a list of dict blocks) — and both shapes are handled here.
+
+    Args:
+        messages: The conversation so far (not mutated).
+
+    Returns:
+        A copy of ``messages`` whose final message's last content block carries the
+        ephemeral cache breakpoint; returned unchanged if empty.
+    """
+    if not messages:
+        return messages
+    marked = list(messages)
+    last = dict(marked[-1])
+    content = last["content"]
+    if isinstance(content, str):
+        # Initial user question: promote the bare string to a marked text block.
+        last["content"] = [{"type": "text", "text": content, "cache_control": CACHE_CONTROL}]
+    else:
+        # tool_result batch: mark the last block in a copy of the block list.
+        blocks = list(content)
+        blocks[-1] = {**blocks[-1], "cache_control": CACHE_CONTROL}
+        last["content"] = blocks
+    marked[-1] = last
+    return marked
+
+
 class KBAgent:
     """Stateful chat agent that retains conversation history across turns."""
 
@@ -157,9 +223,11 @@ class KBAgent:
             response = self.client.messages.create(
                 model=self.model,
                 max_tokens=16000,
-                system=self.system,
+                # Cache the static prefix (tools + system) and the growing transcript
+                # tail so each pass re-reads them from cache instead of at full price.
+                system=_cached_system(self.system),
                 tools=TOOLS,
-                messages=self.messages,
+                messages=_messages_with_cache_marker(self.messages),
             )
 
             # Always preserve the assistant turn (it holds any tool_use blocks).
