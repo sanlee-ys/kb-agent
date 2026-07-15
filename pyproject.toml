@@ -16,7 +16,18 @@ dependencies = [
     # Server-side MCP SDK for mcp_server/server.py. Not the `[cli]` extra: nothing
     # here imports mcp.cli, and `uvx mcp dev` covers the inspector when it's wanted.
     "mcp>=1.28.1",
+    # Observability: the agent loop is instrumented against the OTel API always;
+    # the SDK only records/exports when KB_AGENT_TRACING is set (see
+    # agent/telemetry.py). API + SDK are core so the no-op-when-disabled path works
+    # out of the box; the OTLP wire exporter is the optional `otlp` extra below.
+    "opentelemetry-api>=1.20.0",
+    "opentelemetry-sdk>=1.20.0",
 ]
+
+[project.optional-dependencies]
+# Export spans to an OpenTelemetry collector over OTLP/HTTP. The console exporter
+# (stderr) needs no infrastructure and is always available without this extra.
+otlp = ["opentelemetry-exporter-otlp-proto-http>=1.20.0"]
 
 [dependency-groups]
 dev = ["ruff", "pytest>=8.0"]

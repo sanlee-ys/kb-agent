@@ -29,6 +29,11 @@ Protocol server (`mcp_server/server.py`).
 - **httpx** — the cross-repo HTTP seams: `classify_snippet` POSTs to the
   defense-news-classifier's `/classify`, `search_notes` GETs the notes-api's
   `/notes`.
+- **opentelemetry-api / -sdk** — optional tracing over the tool-use loop
+  (`agent/telemetry.py`). Instrumented against the OTel API always; the SDK only
+  records/exports when `KB_AGENT_TRACING` is set, so it's a no-op by default.
+  Each `ask()` emits a span tree (`kb_agent.ask` → `chat <model>` →
+  `execute_tool <name>`) with GenAI-semconv token and tool-status attributes.
 - **gradio** — the chat UI in `app.py`.
 - **pyyaml** — reads `projects.yaml`.
 - **python-dotenv** — loads `ANTHROPIC_API_KEY` from `.env`.
