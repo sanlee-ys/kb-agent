@@ -157,11 +157,44 @@ For Claude Desktop, add the equivalent to `claude_desktop_config.json`:
 directory, and it tells `uv` which project's environment to use. The server itself
 resolves the repo root from `__file__`, so the KB and index are found either way.
 
+## Observability
+
+A tool-use loop is a distributed system: one `ask()` fans out into several model
+calls and tool calls, and the questions that decide whether it's fast and cheap —
+*which tool is slow, where the tokens go, how many passes a turn took* — are
+invisible without a span per step. The loop is instrumented with
+[OpenTelemetry](https://opentelemetry.io/) tracing to make that legible.
+
+It's **off by default and zero-overhead when off.** The loop is instrumented
+against the OTel *API*, whose default tracer is a no-op; the *SDK* that records
+and exports spans is configured only when `KB_AGENT_TRACING` is set
+(`agent/telemetry.py`). Turn it on:
+
+```bash
+KB_AGENT_TRACING=1 uv run python agent/agent.py          # spans to stderr (console)
+KB_AGENT_TRACING=1 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 \
+  uv run --extra otlp python agent/agent.py              # also to an OTLP collector
+```
+
+Each turn emits a span tree — `kb_agent.ask` → one `chat <model>` per model call →
+one `execute_tool <name>` per tool call — carrying, per
+[OpenTelemetry's GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/):
+
+| Span | Key attributes |
+| --- | --- |
+| `kb_agent.ask` | `gen_ai.request.model`, `kb_agent.loop.iterations` (how many passes the turn took) |
+| `chat <model>` | `gen_ai.usage.{input,output,cache_read,cache_creation}_tokens`, `gen_ai.response.finish_reasons` |
+| `execute_tool <name>` | `gen_ai.tool.name`, `kb_agent.tool.status` (the SYS-003 status) — span duration is the tool latency |
+
+The console exporter needs no infrastructure; the OTLP exporter (`--extra otlp`)
+sends the same spans to any collector (Jaeger, Tempo, Honeycomb, …).
+
 ## Status
 
 v1 — local KB with a RAG/tool-use agent (Gradio chat UI + CLI), an MCP server over the
 same tools, now with cross-project
 **ecosystem seams**: the agent can call a tracked project's HTTP service — the
 defense-news-classifier (`classify_snippet`) and the notes-api (`search_notes`). Tools
-follow a shared observation contract (`system/SYS-003`) and have an offline test suite
+follow a shared observation contract (`system/SYS-003`), OpenTelemetry tracing over the
+tool-use loop (opt-in via `KB_AGENT_TRACING`), and an offline test suite
 (`uv run pytest`).

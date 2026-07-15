@@ -21,8 +21,20 @@ from dotenv import load_dotenv
 
 # Support both `python agent/agent.py` and `import agent.agent`.
 try:
+    from .telemetry import (
+        get_tracer,
+        observation_status,
+        set_usage_attributes,
+        setup_tracing,
+    )
     from .tools import TOOLS, execute_tool
 except ImportError:  # running as a script
+    from telemetry import (
+        get_tracer,
+        observation_status,
+        set_usage_attributes,
+        setup_tracing,
+    )
     from tools import TOOLS, execute_tool
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -196,6 +208,9 @@ class KBAgent:
                 SYSTEM_PROMPT.
         """
         load_dotenv(REPO_ROOT / ".env")
+        # Activate the tracing SDK if KB_AGENT_TRACING is set; otherwise this is a
+        # no-op and the loop's spans stay inert (see agent/telemetry.py).
+        setup_tracing()
         self.client = anthropic.Anthropic()
         # Precedence: explicit arg > KB_AGENT_MODEL env var (read after .env is
         # loaded, so it can live there too) > the Sonnet workhorse default.
@@ -218,46 +233,75 @@ class KBAgent:
             tool-call iteration cap without finishing.
         """
         self.messages.append({"role": "user", "content": user_message})
+        tracer = get_tracer()
 
-        for _ in range(MAX_TOOL_ITERATIONS):
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=16000,
-                # Cache the static prefix (tools + system) and the growing transcript
-                # tail so each pass re-reads them from cache instead of at full price.
-                system=_cached_system(self.system),
-                tools=TOOLS,
-                messages=_messages_with_cache_marker(self.messages),
-            )
+        # One span per turn wraps the whole loop; a child span per model call and
+        # per tool call makes the fan-out (where the time and tokens go) legible.
+        with tracer.start_as_current_span("kb_agent.ask") as turn_span:
+            turn_span.set_attribute("gen_ai.request.model", self.model)
 
-            # Always preserve the assistant turn (it holds any tool_use blocks).
-            self.messages.append({"role": "assistant", "content": response.content})
-
-            if response.stop_reason != "tool_use":
-                # Model is done — return its text.
-                return self._final_text(response)
-
-            # Execute every tool the model requested and send results back.
-            tool_results = []
-            for block in response.content:
-                if block.type == "tool_use":
-                    result = execute_tool(block.name, block.input)
-                    # search_kb is a retrieval tool: present its hits as search_result
-                    # content blocks so the model cites sources automatically. Every
-                    # other tool's SYS-003 string passes through unchanged.
-                    content = (
-                        _search_kb_tool_result_content(result)
-                        if block.name == "search_kb"
-                        else result
+            for iteration in range(MAX_TOOL_ITERATIONS):
+                with tracer.start_as_current_span(f"chat {self.model}") as call_span:
+                    call_span.set_attribute("gen_ai.operation.name", "chat")
+                    call_span.set_attribute("gen_ai.request.model", self.model)
+                    call_span.set_attribute("kb_agent.loop.iteration", iteration)
+                    response = self.client.messages.create(
+                        model=self.model,
+                        max_tokens=16000,
+                        # Cache the static prefix (tools + system) and the growing
+                        # transcript tail so each pass re-reads them from cache
+                        # instead of at full price.
+                        system=_cached_system(self.system),
+                        tools=TOOLS,
+                        messages=_messages_with_cache_marker(self.messages),
                     )
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": content,
-                    })
-            self.messages.append({"role": "user", "content": tool_results})
+                    if call_span.is_recording():
+                        set_usage_attributes(call_span, getattr(response, "usage", None))
+                        if response.stop_reason:
+                            call_span.set_attribute(
+                                "gen_ai.response.finish_reasons", [response.stop_reason]
+                            )
 
-        return "Stopped after too many tool calls without a final answer."
+                # Always preserve the assistant turn (it holds any tool_use blocks).
+                self.messages.append({"role": "assistant", "content": response.content})
+
+                if response.stop_reason != "tool_use":
+                    # Model is done — return its text.
+                    turn_span.set_attribute("kb_agent.loop.iterations", iteration + 1)
+                    return self._final_text(response)
+
+                # Execute every tool the model requested and send results back.
+                tool_results = []
+                for block in response.content:
+                    if block.type == "tool_use":
+                        with tracer.start_as_current_span(
+                            f"execute_tool {block.name}"
+                        ) as tool_span:
+                            tool_span.set_attribute("gen_ai.operation.name", "execute_tool")
+                            tool_span.set_attribute("gen_ai.tool.name", block.name)
+                            result = execute_tool(block.name, block.input)
+                            if tool_span.is_recording():
+                                tool_span.set_attribute(
+                                    "kb_agent.tool.status", observation_status(result)
+                                )
+                        # search_kb is a retrieval tool: present its hits as
+                        # search_result content blocks so the model cites sources
+                        # automatically. Every other tool's SYS-003 string passes
+                        # through unchanged.
+                        content = (
+                            _search_kb_tool_result_content(result)
+                            if block.name == "search_kb"
+                            else result
+                        )
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": content,
+                        })
+                self.messages.append({"role": "user", "content": tool_results})
+
+            turn_span.set_attribute("kb_agent.loop.iterations", MAX_TOOL_ITERATIONS)
+            return "Stopped after too many tool calls without a final answer."
 
     @staticmethod
     def _final_text(response) -> str:
