@@ -10,8 +10,9 @@ work doesn't re-derive what v1 settled. Read this together with the `README.md`.
 > its **own BM25 retriever** in its `v2.0.0` and never took the kb-agent endpoint. With no
 > second consumer, the backbone had no one to serve, so factoring one out would be exactly
 > the premature abstraction v1 was careful to avoid. The section below preserves that
-> history; the *new* v2 is scoped around kb-agent's own quality instead. See
-> **What v2 is now**.
+> history; the *new* v2 is scoped around kb-agent's own quality instead (see
+> **What v2 is now**). A separate near-term chore — **KB freshness** — is tracked lower
+> down; it's a bugfix, not the milestone.
 
 ---
 
@@ -77,6 +78,38 @@ it was always about measurement rather than the consumer:
   the gold-set size and how queries are chosen (cover each `kind`: projects, libraries,
   notes) **before** building the harness. If end-answer quality gets measured too, *that*
   layer may want an LLM judge — keep it distinct from the retrieval metric.
+
+## Near-term chore (a fix, not the v2 milestone): keep the KB fresh
+
+This is a **separate track** from the v2 milestone above — a correctness chore, not a
+measured capability — so it's called out on its own rather than folded into v2. It fixes a
+staleness bug that already exists; do it whenever, independent of v2.
+
+The problem is baked into the current pipeline. `ingest.py` **never overwrites** an existing
+stub unless `--force` is passed, so once written, a stub is frozen while the project it
+describes moves on (a new dependency, a rewritten README). `index.py` then **drops and
+rebuilds the entire collection from scratch** every run. Two consequences:
+
+- **No staleness signal.** Nothing tells you a stub is now out of date relative to its
+  source `pyproject.toml`/README — it just quietly drifts. (`kb/projects/kb-agent.md` is the
+  sharp case: hand-written, outside `ingest.py` entirely, so *nothing* regenerates it —
+  CLAUDE.md already flags it as a known staleness risk.)
+- **Wasteful rebuilds.** Re-embedding every chunk on every index run is fine at today's
+  handful of stubs, but it's rebuild-the-world by design.
+
+Two small, independent pieces:
+
+1. **Freshness check.** An `ingest.py --check` (or similar) that diffs each source's current
+   hash/mtime against what its stub was built from and reports which stubs are stale —
+   surface the drift instead of hiding it. No regeneration, just a signal.
+2. **Incremental re-index.** Make `index.py` re-embed only the chunks whose files changed
+   rather than dropping the whole collection — a correctness/perf refinement, worth it only
+   once the KB is big enough that a full rebuild is felt.
+
+Unlike the v2 milestone, this track has **nothing to measure** — it's plumbing. That's
+exactly why it's a chore and not the milestone: it fixes a real bug but produces no eval, so
+it doesn't carry a "here are the numbers" story. Keep the two straight — don't let the chore
+masquerade as v2.
 
 ## Constraints carried forward (don't re-litigate)
 
