@@ -223,3 +223,24 @@ def test_run_accept_writes_nothing_when_no_stubs_match(tmp_path, monkeypatch):
     # Source path absent → nothing to record → no manifest file created.
     run_accept([{"name": "proj", "path": "/no/such", "description": "d"}])
     assert not mf.exists()
+
+
+def test_run_check_filtered_does_not_flag_siblings_as_orphans(tmp_path, monkeypatch, capsys):
+    # A name-filtered check sees only one entry, but sibling stubs on disk are
+    # still managed — they must not be reported as unmanaged/orphan.
+    kb_projects = tmp_path / "kb" / "projects"
+    kb_projects.mkdir(parents=True)
+    monkeypatch.setattr(ingest, "KB_PROJECTS", kb_projects)
+    monkeypatch.setattr(ingest, "MANIFEST_FILE", tmp_path / ".ingest-manifest.json")
+    for stem in ("a", "b", "c"):
+        (kb_projects / f"{stem}.md").write_text("stub\n", encoding="utf-8")
+
+    # Simulate `--check a`: only entry "a" passed, orphan sweep disabled.
+    run_check([{"name": "a", "path": "/no/such", "description": "d"}], show_orphans=False)
+    out = capsys.readouterr().out
+    assert "unmanaged" not in out  # siblings b, c must not be called orphans
+
+    # The unfiltered sweep, by contrast, does surface true orphans.
+    run_check([{"name": "a", "path": "/no/such", "description": "d"}], show_orphans=True)
+    out = capsys.readouterr().out
+    assert "unmanaged" in out and "b" in out and "c" in out

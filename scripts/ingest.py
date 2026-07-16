@@ -376,15 +376,18 @@ _STATUS_COLOR = {
 }
 
 
-def run_check(projects: list[dict]) -> int:
+def run_check(projects: list[dict], show_orphans: bool = True) -> int:
     """Report each project stub's freshness and return a process exit code.
 
     Freshness tracks *project* stubs only — library stubs are generated from a
     package name, not a source file, so they can't drift against one. Prints a
-    line per project plus any unmanaged orphan stubs.
+    line per project plus, on an unfiltered sweep, any unmanaged orphan stubs.
 
     Args:
         projects: The projects.yaml entries to check.
+        show_orphans: Whether to list stubs with no projects.yaml entry. Only
+            valid on a full sweep — with a name-filtered ``projects`` the "known"
+            set is incomplete, so every other managed stub would look orphaned.
 
     Returns:
         1 if any stub is stale (actionable drift), else 0 — so this can gate CI
@@ -398,8 +401,9 @@ def run_check(projects: list[dict]) -> int:
         color = _STATUS_COLOR.get(status, "white")
         console.print(f"  [{color}]{status:>9}[/{color}]  {entry['name']} — {detail}")
 
-    for name in orphan_stub_names(projects):
-        console.print(f"  [dim]unmanaged[/dim]  {name} — not in projects.yaml (hand-maintained)")
+    if show_orphans:
+        for name in orphan_stub_names(projects):
+            console.print(f"  [dim]unmanaged[/dim]  {name} — not in projects.yaml (hand-edited)")
 
     if stale:
         console.print(
@@ -469,8 +473,10 @@ def main() -> None:
     args = parser.parse_args()
 
     # --check and --accept are offline (no model call), so handle them first.
+    # The orphan sweep is global, so only run it when unfiltered — a name-filtered
+    # check has an incomplete "known" set and would mislabel every sibling stub.
     if args.check:
-        sys.exit(run_check(load_projects(args.project)))
+        sys.exit(run_check(load_projects(args.project), show_orphans=args.project is None))
     if args.accept:
         run_accept(load_projects(args.project))
         return
