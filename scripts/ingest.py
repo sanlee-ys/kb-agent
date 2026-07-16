@@ -10,15 +10,23 @@ write:
 Stubs are NEVER overwritten once they exist, so hand-annotations you add later
 are preserved. Use --force to regenerate.
 
+A sidecar manifest (kb/.ingest-manifest.json) fingerprints the source each
+project stub was generated from, so --check can flag stubs that have drifted
+from their source without touching or regenerating anything.
+
 Usage:
     uv run python scripts/ingest.py                 # all projects in projects.yaml
     uv run python scripts/ingest.py defense-news-classifier   # just one
     uv run python scripts/ingest.py --force         # regenerate existing stubs
+    uv run python scripts/ingest.py --check         # report stubs that drifted (no changes)
+    uv run python scripts/ingest.py --accept        # bless current source as the baseline
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import re
 import sys
 import tomllib
@@ -34,6 +42,17 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PROJECTS_FILE = REPO_ROOT / "projects.yaml"
 KB_PROJECTS = REPO_ROOT / "kb" / "projects"
 KB_LIBRARIES = REPO_ROOT / "kb" / "libraries"
+
+# Provenance sidecar: records the source fingerprint each project stub was
+# generated from, so --check can tell when a stub has drifted from its source.
+# Lives beside the stubs but is JSON (not *.md), so index.py never embeds it.
+MANIFEST_FILE = REPO_ROOT / "kb" / ".ingest-manifest.json"
+MANIFEST_VERSION = 1
+
+# How much of a README is put in the generation prompt. The freshness
+# fingerprint hashes exactly this prefix, so "stale" means "the inputs that
+# produced this stub changed" — not "a byte past what the model ever saw."
+README_PROMPT_CHARS = 8000
 
 # SYS-002 model-tier standard: the Sonnet workhorse is the default for stub
 # generation; bump this only if an eval shows a stronger tier writes better stubs.
@@ -123,7 +142,7 @@ Dependencies: {", ".join(deps) or "none detected"}
 
 README (may be empty or partial):
 ---
-{readme[:8000] or "(no README found)"}
+{readme[:README_PROMPT_CHARS] or "(no README found)"}
 ---
 
 Write the entry with these sections:
@@ -191,6 +210,137 @@ def write_stub(path: Path, content: str, force: bool) -> bool:
     return True
 
 
+def source_fingerprint(description: str, deps: list[str], readme: str) -> str:
+    """Return a stable digest of the inputs a project stub is generated from.
+
+    The fingerprint covers exactly what feeds generate_project_stub — the
+    projects.yaml description, the sorted dependency names, and the README
+    prefix actually put in the prompt — so a change to any of them marks the
+    stub stale, while hand-edits to the stub itself (which change none of these
+    inputs) never do. README newlines are normalized so a pure CRLF/LF flip
+    isn't mistaken for a content change.
+
+    Args:
+        description: The project's description from projects.yaml.
+        deps: Sorted dependency package names, as parse_dependencies returns.
+        readme: The project's full README text; only the prompt-visible prefix
+            is fingerprinted.
+
+    Returns:
+        A ``"sha256:<hex>"`` digest string.
+    """
+    payload = json.dumps(
+        {
+            "description": description,
+            "deps": deps,
+            "readme": readme[:README_PROMPT_CHARS].replace("\r\n", "\n"),
+        },
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return f"sha256:{digest}"
+
+
+def load_manifest() -> dict:
+    """Load the ingest fingerprint manifest, or an empty skeleton if absent.
+
+    Returns:
+        A dict shaped ``{"version": int, "projects": {name: {"fingerprint": ...}}}``.
+        A missing file yields an empty skeleton rather than an error, so a fresh
+        checkout with no manifest yet is a normal, handled state.
+    """
+    if not MANIFEST_FILE.exists():
+        return {"version": MANIFEST_VERSION, "projects": {}}
+    data = json.loads(MANIFEST_FILE.read_text(encoding="utf-8"))
+    data.setdefault("version", MANIFEST_VERSION)
+    data.setdefault("projects", {})
+    return data
+
+
+def save_manifest(manifest: dict) -> None:
+    """Write the manifest to disk as pretty, stably-ordered JSON.
+
+    Args:
+        manifest: The manifest dict to persist.
+    """
+    MANIFEST_FILE.parent.mkdir(parents=True, exist_ok=True)
+    MANIFEST_FILE.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def record_fingerprint(manifest: dict, name: str, fingerprint: str) -> None:
+    """Set the recorded source fingerprint for one project in the manifest.
+
+    Args:
+        manifest: The manifest dict to mutate in place.
+        name: The project name.
+        fingerprint: The source fingerprint to record as the new baseline.
+    """
+    manifest.setdefault("projects", {})[name] = {"fingerprint": fingerprint}
+
+
+def check_project_freshness(entry: dict, manifest: dict) -> tuple[str, str]:
+    """Classify one project stub's freshness against its recorded baseline.
+
+    Args:
+        entry: A projects.yaml entry (needs ``name`` and ``path``).
+        manifest: The loaded fingerprint manifest.
+
+    Returns:
+        A ``(status, detail)`` tuple. ``status`` is one of:
+
+        - ``"skipped"``  — the source path doesn't exist on this machine, so
+          freshness can't be computed here (like ingest's own path skip).
+        - ``"missing"``  — the source is present but no stub has been generated.
+        - ``"untracked"`` — a stub exists but has no recorded baseline (generated
+          before freshness tracking, or hand-maintained).
+        - ``"stale"``    — the source changed since the stub's baseline.
+        - ``"fresh"``    — the source matches the recorded baseline.
+    """
+    name = entry["name"]
+    project_path = Path(entry["path"])
+    stub = KB_PROJECTS / f"{name}.md"
+    recorded = manifest.get("projects", {}).get(name, {}).get("fingerprint")
+
+    if not project_path.exists():
+        return "skipped", f"source path not found ({project_path})"
+    if not stub.exists():
+        return "missing", "no stub yet — run ingest.py to generate it"
+
+    current = source_fingerprint(
+        entry.get("description", ""),
+        parse_dependencies(project_path),
+        read_readme(project_path),
+    )
+    if recorded is None:
+        return "untracked", "no baseline — run 'ingest.py --accept' (or --force to regenerate)"
+    if recorded != current:
+        return "stale", "source changed since generation — review, then --accept or --force"
+    return "fresh", "up to date"
+
+
+def orphan_stub_names(projects: list[dict]) -> list[str]:
+    """Return project-stub names on disk with no matching projects.yaml entry.
+
+    These are unmanaged by the pipeline — e.g. the hand-written kb-agent.md
+    self-stub — so ``--check`` lists them as informational rather than fresh or
+    stale (there's no source to compare against).
+
+    Args:
+        projects: The projects.yaml entries.
+
+    Returns:
+        Sorted stub names (file stems) with no corresponding project entry.
+    """
+    if not KB_PROJECTS.exists():
+        return []
+    known = {p.get("name") for p in projects}
+    return sorted(f.stem for f in KB_PROJECTS.glob("*.md") if f.stem not in known)
+
+
 def load_projects(only: str | None) -> list[dict]:
     """Load project entries from projects.yaml, optionally filtered by name.
 
@@ -216,16 +366,120 @@ def load_projects(only: str | None) -> list[dict]:
     return projects
 
 
+# Rich color per freshness status, for the --check report.
+_STATUS_COLOR = {
+    "fresh": "green",
+    "stale": "red",
+    "untracked": "yellow",
+    "missing": "yellow",
+    "skipped": "dim",
+}
+
+
+def run_check(projects: list[dict], show_orphans: bool = True) -> int:
+    """Report each project stub's freshness and return a process exit code.
+
+    Freshness tracks *project* stubs only — library stubs are generated from a
+    package name, not a source file, so they can't drift against one. Prints a
+    line per project plus, on an unfiltered sweep, any unmanaged orphan stubs.
+
+    Args:
+        projects: The projects.yaml entries to check.
+        show_orphans: Whether to list stubs with no projects.yaml entry. Only
+            valid on a full sweep — with a name-filtered ``projects`` the "known"
+            set is incomplete, so every other managed stub would look orphaned.
+
+    Returns:
+        1 if any stub is stale (actionable drift), else 0 — so this can gate CI
+        or a pre-commit hook later.
+    """
+    manifest = load_manifest()
+    stale = 0
+    for entry in projects:
+        status, detail = check_project_freshness(entry, manifest)
+        stale += status == "stale"
+        color = _STATUS_COLOR.get(status, "white")
+        console.print(f"  [{color}]{status:>9}[/{color}]  {entry['name']} — {detail}")
+
+    if show_orphans:
+        for name in orphan_stub_names(projects):
+            console.print(f"  [dim]unmanaged[/dim]  {name} — not in projects.yaml (hand-edited)")
+
+    if stale:
+        console.print(
+            f"[red]{stale} stub(s) stale.[/red] Review, then 'ingest.py --accept' or --force."
+        )
+    else:
+        console.print("[green]No stale stubs.[/green]")
+    return 1 if stale else 0
+
+
+def run_accept(projects: list[dict]) -> None:
+    """Record current source fingerprints as the baseline for existing stubs.
+
+    This blesses hand-curated stubs as matching their current source without
+    regenerating them — the non-destructive way to establish a baseline, unlike
+    --force which overwrites hand-edits. Projects with no stub, or whose source
+    path is absent on this machine, are left untouched.
+
+    Args:
+        projects: The projects.yaml entries to accept.
+    """
+    manifest = load_manifest()
+    recorded: list[str] = []
+    for entry in projects:
+        name = entry["name"]
+        project_path = Path(entry["path"])
+        if not project_path.exists() or not (KB_PROJECTS / f"{name}.md").exists():
+            continue
+        fingerprint = source_fingerprint(
+            entry.get("description", ""),
+            parse_dependencies(project_path),
+            read_readme(project_path),
+        )
+        record_fingerprint(manifest, name, fingerprint)
+        recorded.append(name)
+
+    if recorded:
+        save_manifest(manifest)
+        console.print(f"[green]Recorded baseline for:[/green] {', '.join(recorded)}")
+    else:
+        console.print(
+            "[yellow]No stubs to record (no source paths present, or no stubs yet).[/yellow]"
+        )
+
+
 def main() -> None:
     """Generate KB stubs for the projects named on the command line (or all).
 
     Parses CLI args, then for each project writes a project overview plus one
     library stub per dependency, skipping existing files unless --force is set.
+    The read-only --check and non-destructive --accept modes short-circuit
+    before any model call, since neither needs the API.
     """
     parser = argparse.ArgumentParser(description="Generate KB stubs from projects.")
     parser.add_argument("project", nargs="?", help="Only ingest this project by name.")
     parser.add_argument("--force", action="store_true", help="Overwrite existing stubs.")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Report which project stubs have drifted from their source; make no changes.",
+    )
+    parser.add_argument(
+        "--accept",
+        action="store_true",
+        help="Record current source as each existing stub's baseline (no regeneration).",
+    )
     args = parser.parse_args()
+
+    # --check and --accept are offline (no model call), so handle them first.
+    # The orphan sweep is global, so only run it when unfiltered — a name-filtered
+    # check has an incomplete "known" set and would mislabel every sibling stub.
+    if args.check:
+        sys.exit(run_check(load_projects(args.project), show_orphans=args.project is None))
+    if args.accept:
+        run_accept(load_projects(args.project))
+        return
 
     load_dotenv(REPO_ROOT / ".env")
     client = anthropic.Anthropic()
@@ -233,6 +487,8 @@ def main() -> None:
     KB_PROJECTS.mkdir(parents=True, exist_ok=True)
     KB_LIBRARIES.mkdir(parents=True, exist_ok=True)
 
+    manifest = load_manifest()
+    manifest_changed = False
     for entry in load_projects(args.project):
         name = entry["name"]
         project_path = Path(entry["path"])
@@ -246,13 +502,17 @@ def main() -> None:
         deps = parse_dependencies(project_path)
         readme = read_readme(project_path)
 
-        # Project stub.
+        # Project stub. Record the source fingerprint only when we actually
+        # (re)write it, so the manifest baseline reflects what produced the stub
+        # — never a stale stub we skipped over.
         project_file = KB_PROJECTS / f"{name}.md"
         if project_file.exists() and not args.force:
             console.print(f"  project stub exists, skipping ({project_file.name})")
         else:
             stub = generate_project_stub(client, name, description, deps, readme)
             write_stub(project_file, stub, args.force)
+            record_fingerprint(manifest, name, source_fingerprint(description, deps, readme))
+            manifest_changed = True
             console.print(f"  [green]wrote[/green] {project_file.name}")
 
         # Library stubs (one per dependency).
@@ -264,6 +524,8 @@ def main() -> None:
             write_stub(lib_file, stub, args.force)
             console.print(f"  [green]wrote[/green] libraries/{lib_file.name}")
 
+    if manifest_changed:
+        save_manifest(manifest)
     console.print("[bold green]Done.[/bold green]")
 
 

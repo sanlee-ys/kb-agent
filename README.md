@@ -24,7 +24,10 @@ projects.yaml ──▶ ingest.py ──▶ kb/*.md ──▶ index.py ──▶
 
 - **`scripts/ingest.py`** — reads each project's `pyproject.toml`/`requirements.txt`
   + README and uses the Anthropic API to write KB stubs. Never overwrites existing
-  files (so your hand-annotations survive), unless you pass `--force`.
+  files (so your hand-annotations survive), unless you pass `--force`. It fingerprints
+  the source each project stub was built from (in `kb/.ingest-manifest.json`), so
+  `ingest.py --check` reports stubs that have drifted from their source and
+  `ingest.py --accept` records the current source as the baseline without regenerating.
 - **`scripts/index.py`** — chunks `kb/*.md` and embeds them into a local ChromaDB
   collection using the built-in `all-MiniLM-L6-v2` model (no API key, runs locally).
 - **`agent/tools.py`** — four tools. `search_kb` (RAG over the local KB) and

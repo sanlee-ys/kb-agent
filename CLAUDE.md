@@ -21,6 +21,8 @@ cp -n .env.example .env                   # then set ANTHROPIC_API_KEY
 uv run python scripts/ingest.py           # generate kb/*.md stubs from projects.yaml
 uv run python scripts/ingest.py NAME      # ingest a single project by name
 uv run python scripts/ingest.py --force   # regenerate existing stubs (see note below)
+uv run python scripts/ingest.py --check   # report project stubs that drifted from source (no writes)
+uv run python scripts/ingest.py --accept  # bless current source as each stub's baseline
 uv run python scripts/index.py            # (re)build the ChromaDB vector index
 
 # Run the agent:
@@ -65,6 +67,14 @@ projects.yaml → ingest.py → kb/*.md → index.py → chroma_db/ → tools.se
    and README, then calls the Anthropic API to write `kb/projects/<name>.md` and
    one `kb/libraries/<pkg>.md` per dependency. **Stubs are never overwritten** unless
    `--force` is passed — hand-edits to KB files are meant to survive re-ingestion.
+   Each generated project stub records a **source fingerprint** (description + deps +
+   README prefix) in a sidecar manifest `kb/.ingest-manifest.json`; `--check` recomputes
+   it to flag stubs that have drifted from their source, and `--accept` blesses the
+   current source as the baseline without regenerating (the non-destructive alternative
+   to `--force` for hand-curated stubs). The manifest is JSON (not `*.md`), so `index.py`
+   never embeds it; it's committed so baselines travel across machines/sessions. Freshness
+   tracks *project* stubs only — library stubs are generated from a package name, not a
+   source file, so they can't drift against one.
 2. **`scripts/index.py`** chunks every `kb/**/*.md` (splits on Markdown headings,
    caps chunks at ~1200 chars) and embeds them into a persistent ChromaDB collection
    `knowledge_base` using the **built-in local `all-MiniLM-L6-v2` model — no API key,
@@ -105,6 +115,8 @@ KB, added so `search_kb` can answer questions about the MCP server) is hand-writ
 outside `ingest.py`'s pipeline — there's no self-referential-project path, so nothing
 regenerates it. If `mcp_server/server.py` or the tool layer changes materially, update that
 stub by hand and rerun `scripts/index.py`, or it'll quietly drift from the code it describes.
+(`ingest.py --check` lists it as `unmanaged` — it has no projects.yaml entry to fingerprint
+against — so the drift risk is visible in the report, but the fix is still by hand.)
 
 ## Conventions
 

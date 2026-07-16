@@ -9,7 +9,20 @@ from __future__ import annotations
 import pytest
 
 import scripts.ingest as ingest
-from scripts.ingest import parse_dependencies, read_readme, write_stub
+from scripts.ingest import (
+    README_PROMPT_CHARS,
+    check_project_freshness,
+    load_manifest,
+    orphan_stub_names,
+    parse_dependencies,
+    read_readme,
+    record_fingerprint,
+    run_accept,
+    run_check,
+    save_manifest,
+    source_fingerprint,
+    write_stub,
+)
 
 
 def test_parse_dependencies_from_pyproject(tmp_path):
@@ -84,3 +97,150 @@ def test_load_projects_unknown_name_exits(tmp_path, monkeypatch):
     monkeypatch.setattr(ingest, "PROJECTS_FILE", pf)
     with pytest.raises(SystemExit):
         ingest.load_projects("nonexistent")
+
+
+# --- Freshness tracking: fingerprint, manifest, --check, --accept -----------
+
+
+def test_source_fingerprint_stable_and_prefixed():
+    fp = source_fingerprint("desc", ["a", "b"], "readme")
+    # Deterministic and namespaced by algorithm.
+    assert fp == source_fingerprint("desc", ["a", "b"], "readme")
+    assert fp.startswith("sha256:")
+
+
+@pytest.mark.parametrize(
+    "a, b",
+    [
+        (("desc", ["x"], "r"), ("DESC", ["x"], "r")),  # description change
+        (("desc", ["x"], "r"), ("desc", ["x", "y"], "r")),  # deps change
+        (("desc", ["x"], "r"), ("desc", ["x"], "different")),  # readme change
+    ],
+)
+def test_source_fingerprint_sensitive_to_each_input(a, b):
+    assert source_fingerprint(*a) != source_fingerprint(*b)
+
+
+def test_source_fingerprint_ignores_readme_past_prompt_window():
+    base = "x" * README_PROMPT_CHARS
+    # A change only beyond the prompt-visible prefix can't have affected the
+    # stub, so it must not read as drift.
+    assert source_fingerprint("d", [], base + "AAA") == source_fingerprint("d", [], base + "ZZZ")
+
+
+def test_source_fingerprint_normalizes_newlines():
+    assert source_fingerprint("d", [], "a\r\nb") == source_fingerprint("d", [], "a\nb")
+
+
+def test_manifest_roundtrip_and_missing_is_empty(tmp_path, monkeypatch):
+    mf = tmp_path / ".ingest-manifest.json"
+    monkeypatch.setattr(ingest, "MANIFEST_FILE", mf)
+    # Absent file → empty skeleton, not an error.
+    assert load_manifest()["projects"] == {}
+    manifest = load_manifest()
+    record_fingerprint(manifest, "proj", "sha256:abc")
+    save_manifest(manifest)
+    assert load_manifest()["projects"]["proj"]["fingerprint"] == "sha256:abc"
+
+
+def _project(tmp_path, name, *, description="d", readme="hello", deps_toml=None):
+    """Create a fake project dir and return its projects.yaml-style entry."""
+    proj_dir = tmp_path / name
+    proj_dir.mkdir()
+    (proj_dir / "README.md").write_text(readme, encoding="utf-8")
+    if deps_toml:
+        (proj_dir / "pyproject.toml").write_text(deps_toml, encoding="utf-8")
+    return {"name": name, "path": str(proj_dir), "description": description}
+
+
+def test_check_project_freshness_states(tmp_path, monkeypatch):
+    kb_projects = tmp_path / "kb" / "projects"
+    kb_projects.mkdir(parents=True)
+    monkeypatch.setattr(ingest, "KB_PROJECTS", kb_projects)
+
+    entry = _project(tmp_path, "proj")
+    manifest = {"version": 1, "projects": {}}
+
+    # No stub yet → missing.
+    assert check_project_freshness(entry, manifest)[0] == "missing"
+
+    # Stub exists, no baseline → untracked.
+    (kb_projects / "proj.md").write_text("stub\n", encoding="utf-8")
+    assert check_project_freshness(entry, manifest)[0] == "untracked"
+
+    # Record the current baseline → fresh.
+    record_fingerprint(
+        manifest, "proj", source_fingerprint("d", parse_dependencies(tmp_path / "proj"), "hello")
+    )
+    assert check_project_freshness(entry, manifest)[0] == "fresh"
+
+    # Change the source README → stale.
+    (tmp_path / "proj" / "README.md").write_text("changed", encoding="utf-8")
+    assert check_project_freshness(entry, manifest)[0] == "stale"
+
+    # Source path gone → skipped (can't verify on this machine).
+    assert check_project_freshness({"name": "gone", "path": "/no/such"}, manifest)[0] == "skipped"
+
+
+def test_orphan_stub_names(tmp_path, monkeypatch):
+    kb_projects = tmp_path / "projects"
+    kb_projects.mkdir()
+    monkeypatch.setattr(ingest, "KB_PROJECTS", kb_projects)
+    (kb_projects / "known.md").write_text("x", encoding="utf-8")
+    (kb_projects / "orphan.md").write_text("x", encoding="utf-8")
+    assert orphan_stub_names([{"name": "known"}]) == ["orphan"]
+
+
+def test_run_check_exit_code_and_accept_roundtrip(tmp_path, monkeypatch):
+    kb_projects = tmp_path / "kb" / "projects"
+    kb_projects.mkdir(parents=True)
+    monkeypatch.setattr(ingest, "KB_PROJECTS", kb_projects)
+    monkeypatch.setattr(ingest, "MANIFEST_FILE", tmp_path / ".ingest-manifest.json")
+
+    entry = _project(tmp_path, "proj")
+    (kb_projects / "proj.md").write_text("stub\n", encoding="utf-8")
+    projects = [entry]
+
+    # Untracked is not a failure — only stale is.
+    assert run_check(projects) == 0
+
+    # Accept blesses the current source; a re-check stays clean.
+    run_accept(projects)
+    assert run_check(projects) == 0
+
+    # Mutating the source makes the next check fail (exit 1).
+    (tmp_path / "proj" / "README.md").write_text("changed", encoding="utf-8")
+    assert run_check(projects) == 1
+
+
+def test_run_accept_writes_nothing_when_no_stubs_match(tmp_path, monkeypatch):
+    kb_projects = tmp_path / "kb" / "projects"
+    kb_projects.mkdir(parents=True)
+    monkeypatch.setattr(ingest, "KB_PROJECTS", kb_projects)
+    mf = tmp_path / ".ingest-manifest.json"
+    monkeypatch.setattr(ingest, "MANIFEST_FILE", mf)
+
+    # Source path absent → nothing to record → no manifest file created.
+    run_accept([{"name": "proj", "path": "/no/such", "description": "d"}])
+    assert not mf.exists()
+
+
+def test_run_check_filtered_does_not_flag_siblings_as_orphans(tmp_path, monkeypatch, capsys):
+    # A name-filtered check sees only one entry, but sibling stubs on disk are
+    # still managed — they must not be reported as unmanaged/orphan.
+    kb_projects = tmp_path / "kb" / "projects"
+    kb_projects.mkdir(parents=True)
+    monkeypatch.setattr(ingest, "KB_PROJECTS", kb_projects)
+    monkeypatch.setattr(ingest, "MANIFEST_FILE", tmp_path / ".ingest-manifest.json")
+    for stem in ("a", "b", "c"):
+        (kb_projects / f"{stem}.md").write_text("stub\n", encoding="utf-8")
+
+    # Simulate `--check a`: only entry "a" passed, orphan sweep disabled.
+    run_check([{"name": "a", "path": "/no/such", "description": "d"}], show_orphans=False)
+    out = capsys.readouterr().out
+    assert "unmanaged" not in out  # siblings b, c must not be called orphans
+
+    # The unfiltered sweep, by contrast, does surface true orphans.
+    run_check([{"name": "a", "path": "/no/such", "description": "d"}], show_orphans=True)
+    out = capsys.readouterr().out
+    assert "unmanaged" in out and "b" in out and "c" in out

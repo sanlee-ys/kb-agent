@@ -99,12 +99,23 @@ rebuilds the entire collection from scratch** every run. Two consequences:
 
 Two small, independent pieces:
 
-1. **Freshness check.** An `ingest.py --check` (or similar) that diffs each source's current
-   hash/mtime against what its stub was built from and reports which stubs are stale —
-   surface the drift instead of hiding it. No regeneration, just a signal.
-2. **Incremental re-index.** Make `index.py` re-embed only the chunks whose files changed
-   rather than dropping the whole collection — a correctness/perf refinement, worth it only
-   once the KB is big enough that a full rebuild is felt.
+1. **Freshness check — SHIPPED.** `ingest.py --check` fingerprints the source each project
+   stub was generated from (description + deps + README prefix) in a sidecar manifest
+   `kb/.ingest-manifest.json` and reports which stubs have drifted — `fresh` / `stale` /
+   `untracked` / `missing` / `skipped`, plus `unmanaged` for orphan stubs like the
+   hand-written `kb-agent.md`. It exits non-zero on `stale` (ready to gate CI/pre-commit
+   later), and `ingest.py --accept` records the current source as a baseline without
+   regenerating — the non-destructive way to bless the existing hand-curated stubs, unlike
+   `--force`. The fingerprint hashes exactly the prompt inputs, so hand-edits to a stub never
+   false-trip it. *First run on a machine reports every stub `untracked` until `--accept`
+   (or a `--force` regenerate) establishes baselines.*
+2. **Incremental re-index — still parked.** Make `index.py` re-embed only the chunks whose
+   files changed rather than dropping the whole collection. Deliberately **not** done with
+   piece 1: it's a perf refinement "worth it only once the KB is big enough that a full
+   rebuild is felt" (see below), and at today's handful of stubs the drop-and-rebuild is
+   instant *and* guarantees zero stale chunks. Adding change-tracking now trades that
+   simplicity for correctness risk with no measurable win — pick it up when a rebuild is
+   actually slow.
 
 Unlike the v2 milestone, this track has **nothing to measure** — it's plumbing. That's
 exactly why it's a chore and not the milestone: it fixes a real bug but produces no eval, so
