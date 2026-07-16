@@ -11,21 +11,9 @@ Then open the printed http://127.0.0.1:7860 URL.
 
 from __future__ import annotations
 
-import warnings
-
 import gradio as gr
 
 from agent.agent import KBAgent
-
-# Gradio 6.19 triggers a Starlette deprecation warning at request time by using
-# HTTP_422_UNPROCESSABLE_ENTITY, which Starlette 1.x renamed to
-# HTTP_422_UNPROCESSABLE_CONTENT. It's harmless and lives in Gradio's code, not
-# ours. Filter just this one message (not all DeprecationWarnings) so it stops
-# cluttering the console; remove this once a Gradio release adopts the new name.
-warnings.filterwarnings(
-    "ignore",
-    message=r"'HTTP_422_UNPROCESSABLE_ENTITY' is deprecated",
-)
 
 
 def respond(message: str, history: list[dict]) -> str:
