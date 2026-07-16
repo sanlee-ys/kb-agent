@@ -1,69 +1,132 @@
-# v2 Kickoff: the shared retrieval backbone
+# v2 Kickoff: measure and improve kb-agent's own retrieval
 
 *A warm-start breadcrumb for whoever (human or a fresh Claude session) begins v2, so the
-work doesn't re-derive what v1 settled. Read this together with the `README.md` — and with
-the **classifier's** own `docs/notes/v2-kickoff.md`, because the two roadmaps meet here.*
+work doesn't re-derive what v1 settled. Read this together with the `README.md`.*
 
-> **Update (v2 shipped):** the classifier went with its own BM25 retriever; the kb-agent `/search`-endpoint idea proposed here was not taken.
+> **Rescoped 2026-07-16.** The original v2 plan — a *shared retrieval backbone*, where
+> kb-agent grew a `/search` endpoint and the classifier consumed it over HTTP — is
+> **retired.** Its whole justification was "a concrete second consumer with a real need":
+> the classifier's RAG iteration. That consumer went its own way — the classifier shipped
+> its **own BM25 retriever** in its `v2.0.0` and never took the kb-agent endpoint. With no
+> second consumer, the backbone had no one to serve, so factoring one out would be exactly
+> the premature abstraction v1 was careful to avoid. The section below preserves that
+> history; the *new* v2 is scoped around kb-agent's own quality instead (see
+> **What v2 is now**). A separate near-term chore — **KB freshness** — is tracked lower
+> down; it's a bugfix, not the milestone.
 
 ---
 
-## Where v1 left off
+## History: what v1 left off, and the backbone that didn't happen
 
 - **v1 is the front-door ecosystem seam.** kb-agent stopped only *describing* tracked
   projects and started *driving* one: the `classify_snippet` tool routes over HTTP to the
-  defense-news-classifier's `/classify` endpoint. Which projects are callable is config
-  (an `endpoint:` in `projects.yaml`), the seam is HTTP (not a direct import), and the tool
-  fails gracefully when the service is down. Verified end to end through the agent.
+  defense-news-classifier's `/classify` endpoint (and `search_notes` reads the notes-api).
+  Which projects are callable is config (an `endpoint:` in `projects.yaml`), the seam is
+  HTTP (not a direct import), and the tool fails gracefully when the service is down.
+  Verified end to end through the agent.
   - *Since v1:* the tool layer gained a documented contract — `system/SYS-003` (a consistent
-    observation shape + recovery contract + eval gate). Note the scope: that governs kb-agent's
-    **agent-facing tool results**; a future service-to-service `/search` API (scoping Q1 below) is
-    a normal REST contract, not the observation shape — don't conflate the two.
+    observation shape + recovery contract + eval gate) — governing kb-agent's agent-facing
+    tool results.
 - **The deliberate non-goal of v1:** no shared library, no merged vector store. With only
   two projects, abstracting a shared backbone risked premature abstraction — so we proved
   the cheap, decoupled seam first.
+- **The backbone that was proposed, and why it's dead.** The v2 thesis was that kb-agent
+  already *is* a retrieval system (ChromaDB + chunking + a tool-use agent), so rather than
+  the classifier standing up its own vector store, kb-agent's retrieval layer would become
+  the substrate it consumed — one `/search` endpoint, the two roadmaps converging on one
+  backbone. That cleared the premature-abstraction bar *only* because there was a concrete
+  second consumer. There no longer is: the classifier built and measured its own BM25
+  retriever and shipped it. The convergence never happened, so the backbone is retired
+  rather than parked — it was justified entirely by a consumer that now exists elsewhere.
 
-## What v2 is (and why it's next, not "eventual")
+## What v2 is now: earn the quality claim
 
-v2 is the **shared retrieval backbone**, and it is now the prioritized next step.
+The pivot exposes an irony worth naming plainly: the retired backbone plan *assumed*
+kb-agent's retrieval was good enough to be a shared substrate for another project — but
+kb-agent has **never measured its own retrieval quality.** There is no gold set, no
+recall@k, no confusion between "the agent answered well" and "the right chunk was
+retrieved." Every quality claim about `search_kb` today is a vibe.
 
-The thesis: kb-agent already *is* a retrieval system (ChromaDB + chunking + a tool-use
-agent). The classifier's own v2 ("the RAG iteration") needs exactly that — retrieval, a
-vector store, grounded source text. Rather than the classifier standing up its *own* vector
-store, kb-agent's retrieval layer becomes the substrate it consumes. The two roadmaps
-converge on one backbone.
+So v2 turns inward and applies the same *measure-first* discipline that kept the classifier
+honest: **make kb-agent's retrieval measurably good, then decide whether it needs to change
+at all.** Concretely, in small steps:
 
-Why this clears the premature-abstraction bar that v1 deliberately avoided: there is now a
-**concrete second consumer with a real need** (the classifier's RAG iteration), not a
-speculative one. That is the difference between factoring out a shared thing because two
-real callers want it, and inventing one because you might.
+1. **A retrieval gold set.** A small, hand-labeled set of `query → expected source file(s)`
+   over the current KB — the questions a real user asks (`"what does project X depend on"`,
+   `"which projects use httpx"`, `"how does the MCP server resolve its repo root"`). Kept in
+   the repo, public/synthetic-safe like everything else here.
+2. **A retrieval metric.** Report **recall@k** and **MRR** for `search_kb` against that gold
+   set — does the right chunk come back in the top *k*? This is a retrieval measurement,
+   deliberately *separate* from end-answer quality; conflating the two is how RAG systems
+   hide bad retrieval behind a capable model.
+3. **Only then, a change worth measuring.** The obvious candidate is **hybrid retrieval**
+   (lexical BM25 + the current `all-MiniLM-L6-v2` embeddings) — pointedly, the classifier's
+   own eval found plain BM25 competitive on its corpus, so the question "does dense
+   retrieval actually beat lexical on kb-agent's short, jargon-heavy stubs?" is live, not
+   settled. Build the alternative, run it against the gold set, and **ship the negative
+   result if the lift is marginal** — same bar as the rest of the portfolio.
 
-## The open scoping questions (decide these first, before code)
+## The one scoping question that survives the pivot
 
-1. **The boundary.** Keep the symmetry of the front door: kb-agent grows a `/search`
-   endpoint and the classifier consumes it over HTTP — repos stay decoupled, each on its own
-   release clock. The alternatives (a vector store shared on disk, or a shared library both
-   import) re-introduce the coupling v1 was careful to avoid. Recommend HTTP; confirm.
-2. **Collections.** The classifier's corpus (real public defense text) is different in kind
-   from kb-agent's hand-edited project/library stubs. Likely a *separate Chroma collection*
-   in the *same store*, not one merged collection. Decide the collection/metadata scheme.
-3. **The eval rethink (carried from the classifier's v2-kickoff).** With real retrieved
-   text there is no model-made answer key, so the classifier's v1 auto-grading breaks.
-   Decide *how v2 measures quality* — a small hand-labeled gold set and/or an LLM judge —
-   **before** building it. Same "measure first" discipline that kept both projects honest.
+The two old scoping questions died with the backbone — the HTTP `/search` boundary and the
+shared-collections scheme both existed only to serve the classifier. One survives, because
+it was always about measurement rather than the consumer:
+
+- **How do we measure quality with no model-made answer key?** For retrieval this is more
+  tractable than the classifier's version: the gold set is `query → expected source`, which
+  a human can label directly against the KB (no LLM judge needed for recall@k / MRR). Decide
+  the gold-set size and how queries are chosen (cover each `kind`: projects, libraries,
+  notes) **before** building the harness. If end-answer quality gets measured too, *that*
+  layer may want an LLM judge — keep it distinct from the retrieval metric.
+
+## Near-term chore (a fix, not the v2 milestone): keep the KB fresh
+
+This is a **separate track** from the v2 milestone above — a correctness chore, not a
+measured capability — so it's called out on its own rather than folded into v2. It fixes a
+staleness bug that already exists; do it whenever, independent of v2.
+
+The problem is baked into the current pipeline. `ingest.py` **never overwrites** an existing
+stub unless `--force` is passed, so once written, a stub is frozen while the project it
+describes moves on (a new dependency, a rewritten README). `index.py` then **drops and
+rebuilds the entire collection from scratch** every run. Two consequences:
+
+- **No staleness signal.** Nothing tells you a stub is now out of date relative to its
+  source `pyproject.toml`/README — it just quietly drifts. (`kb/projects/kb-agent.md` is the
+  sharp case: hand-written, outside `ingest.py` entirely, so *nothing* regenerates it —
+  CLAUDE.md already flags it as a known staleness risk.)
+- **Wasteful rebuilds.** Re-embedding every chunk on every index run is fine at today's
+  handful of stubs, but it's rebuild-the-world by design.
+
+Two small, independent pieces:
+
+1. **Freshness check.** An `ingest.py --check` (or similar) that diffs each source's current
+   hash/mtime against what its stub was built from and reports which stubs are stale —
+   surface the drift instead of hiding it. No regeneration, just a signal.
+2. **Incremental re-index.** Make `index.py` re-embed only the chunks whose files changed
+   rather than dropping the whole collection — a correctness/perf refinement, worth it only
+   once the KB is big enough that a full rebuild is felt.
+
+Unlike the v2 milestone, this track has **nothing to measure** — it's plumbing. That's
+exactly why it's a chore and not the milestone: it fixes a real bug but produces no eval, so
+it doesn't carry a "here are the numbers" story. Keep the two straight — don't let the chore
+masquerade as v2.
 
 ## Constraints carried forward (don't re-litigate)
 
 - Public and/or synthetic text only. Nothing proprietary, anywhere.
 - Secrets from the environment (`ANTHROPIC_API_KEY`); never commit `.env`.
-- Minimal dependencies; `uv` for the env; keep the seam HTTP unless an eval says otherwise.
+- Minimal dependencies; `uv` for the env. A lexical retriever should be a light addition
+  (e.g. `rank-bm25`), not a heavy framework — and only if an eval says it earns its place.
 - Small steps, one concern per session/branch, checkpoint and surface design choices.
+- Retrieval quality is a *per-KB* measurement, not a universal claim — report it against
+  this KB and say so.
 
 ## How to start the v2 session
 
 1. Open a **new session** (fresh context budget).
-2. Read this file, the `README.md`, and the classifier's `docs/notes/v2-kickoff.md` to load
-   both halves of the convergence cold.
-3. Answer the three scoping questions *with San* before writing code — surface the choices
-   and confirm, don't silently pick.
-4. Build in small steps. Measure first.
+2. Read this file and the `README.md` to load the pivot cold — v2 is now inward-facing
+   (kb-agent's own retrieval), not a cross-repo backbone.
+3. Answer the surviving scoping question *with San* — gold-set size and query selection —
+   before writing the harness. Surface the choices and confirm, don't silently pick.
+4. Build in small steps. Measure first; ship the negative result if that's what the numbers
+   say.
