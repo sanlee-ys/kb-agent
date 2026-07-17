@@ -82,7 +82,7 @@ def indexed_kb(tmp_path, monkeypatch):
     monkeypatch.setattr(index, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(index, "KB_DIR", kb_dir)
     monkeypatch.setattr(index, "CHROMA_DIR", chroma_dir)
-    index.main()  # real embeddings -> real collection on disk
+    index.main([])  # real embeddings -> real collection on disk
 
     monkeypatch.setattr(tools, "CHROMA_DIR", chroma_dir)
     return chroma_dir
@@ -105,3 +105,50 @@ def test_search_kb_kind_filter_scopes_results(indexed_kb):
     sources = [chunk["source"] for chunk in data["payload"]]
     assert sources and all("bravo" in src for src in sources)
     assert not any("alpha" in src for src in sources)
+
+
+@pytest.mark.integration
+def test_incremental_reindex_updates_changed_and_drops_deleted(tmp_path, monkeypatch):
+    """A second index run reflects edits/deletes/adds without a full rebuild.
+
+    Exercises the real incremental path against ChromaDB: build, then change one
+    file, delete another, and add a third; re-index; and read the collection back
+    to confirm stale chunks are gone, the new file is present, and the changed
+    file's new text was re-embedded.
+    """
+    import chromadb  # heavy dep, already loaded by this integration module
+
+    kb_dir = tmp_path / "kb"
+    chroma_dir = tmp_path / "chroma_db"
+    projects = kb_dir / "projects"
+    projects.mkdir(parents=True)
+    (projects / "keep.md").write_text("# Keep\nnaval carrier operations at sea.", encoding="utf-8")
+    (projects / "drop.md").write_text("# Drop\ndrone procurement contract.", encoding="utf-8")
+
+    monkeypatch.setattr(index, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(index, "KB_DIR", kb_dir)
+    monkeypatch.setattr(index, "CHROMA_DIR", chroma_dir)
+    monkeypatch.setattr(index, "collect_notes_from_api", lambda: ([], [], []))
+
+    def collection_docs() -> dict:
+        client = chromadb.PersistentClient(path=str(chroma_dir))
+        got = client.get_collection(index.COLLECTION_NAME).get(include=["documents"])
+        return dict(zip(got["ids"], got["documents"]))
+
+    index.main([])  # initial build (incremental, from empty)
+    before = collection_docs()
+    assert any("keep" in cid for cid in before)
+    assert any("drop" in cid for cid in before)
+
+    # Edit one file, delete another, add a brand-new one.
+    (projects / "keep.md").write_text("# Keep\nUPDATED cyber policy note.", encoding="utf-8")
+    (projects / "drop.md").unlink()
+    (projects / "new.md").write_text("# New\nspace launch constellation.", encoding="utf-8")
+
+    index.main([])  # incremental update
+    after = collection_docs()
+
+    assert not any("drop" in cid for cid in after)  # deleted source's chunks gone
+    assert any("new" in cid for cid in after)  # new source present
+    keep_docs = [doc for cid, doc in after.items() if "keep" in cid]
+    assert keep_docs and any("UPDATED" in d for d in keep_docs)  # changed text re-embedded

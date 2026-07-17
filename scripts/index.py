@@ -10,15 +10,19 @@ have been classified — with their category:/domain: tags — are searchable vi
 search_kb(kind="notes"), closing the loop: notes-api → classifier → tags →
 knowledge base → kb-agent.
 
-The collection is rebuilt from scratch each run, so deleted/renamed KB files
-don't leave stale chunks behind.
+By default the index updates *incrementally*: only chunks whose text is new or
+changed are re-embedded, and chunks from deleted/renamed files (or removed notes)
+are dropped — so the collection ends up identical to a full rebuild, without
+re-embedding everything. Pass --rebuild to drop and re-embed from scratch.
 
 Usage:
-    uv run python scripts/index.py
+    uv run python scripts/index.py             # incremental update
+    uv run python scripts/index.py --rebuild   # drop and re-embed everything
 """
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 import chromadb
@@ -233,41 +237,110 @@ def collect_documents() -> tuple[list[str], list[dict], list[str]]:
     return documents, metadatas, ids
 
 
-def main() -> None:
-    """Rebuild the ChromaDB collection from every chunk under kb/.
+def plan_index_update(
+    desired_ids: list[str],
+    desired_docs: list[str],
+    existing_docs: dict[str, str],
+) -> tuple[list[str], list[str]]:
+    """Diff the freshly-collected chunk set against what's already embedded.
 
-    Drops any existing collection first so renamed or deleted KB files don't
-    leave stale chunks behind, then prints a one-line summary.
+    The persisted collection *is* the record of what was indexed last run, so no
+    separate manifest is needed: compare each desired chunk's text against the
+    stored text for the same id. Metadata (``source``/``kind``/``name``) is
+    derived from the id's path, so it can't change without the id changing —
+    comparing the embedding-relevant text alone is sufficient.
+
+    Args:
+        desired_ids: Chunk ids for the target state (from collect_documents).
+        desired_docs: Chunk texts, parallel to desired_ids.
+        existing_docs: id -> stored text for chunks currently in the collection.
+
+    Returns:
+        An ``(upsert_ids, delete_ids)`` tuple: ids whose text is new or changed
+        (need re-embedding), and ids no longer desired (stale — from deleted or
+        renamed files, or notes that disappeared).
     """
+    desired = dict(zip(desired_ids, desired_docs))
+    upsert = [cid for cid, doc in desired.items() if existing_docs.get(cid) != doc]
+    delete = [cid for cid in existing_docs if cid not in desired]
+    return upsert, delete
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Update the ChromaDB collection from every chunk under kb/.
+
+    Incrementally by default — re-embeds only new/changed chunks and drops stale
+    ones, leaving the collection identical to a full rebuild. Pass --rebuild to
+    drop and re-embed from scratch. Prints a one-line summary either way.
+
+    Args:
+        argv: CLI args to parse; defaults to ``sys.argv`` when None. Passing an
+            explicit list (e.g. ``[]`` or ``["--rebuild"]``) lets callers and
+            tests drive it without touching the process argv.
+    """
+    parser = argparse.ArgumentParser(description="Index KB Markdown into ChromaDB.")
+    parser.add_argument(
+        "--rebuild",
+        action="store_true",
+        help="Drop the collection and re-embed everything from scratch.",
+    )
+    args = parser.parse_args(argv)
+
     documents, metadatas, ids = collect_documents()
 
     if not documents:
         console.print("[yellow]No Markdown files found under kb/. Run ingest.py first.[/yellow]")
         return
 
-    # Embedded PersistentClient only — never HttpClient/server mode, and the
-    # collection is always rebuilt fresh from locally-generated kb/ content, never
-    # from an external/untrusted source. Both are load-bearing for CVE-2026-45829's
-    # risk assessment; see docs/notes/chromadb-cve-2026-45829-assessment.md before
+    # Embedded PersistentClient only — never HttpClient/server mode — and the
+    # collection is written *only* by this pipeline from locally-generated kb/
+    # content (never an external/untrusted source), living in a local, gitignored,
+    # unshared chroma_db/. Those are load-bearing for CVE-2026-45829's risk
+    # assessment (see docs/notes/chromadb-cve-2026-45829-assessment.md) — note the
+    # assessment holds under both --rebuild and the incremental path, since neither
+    # introduces a new writer or a custom embedding_function; re-read it before
     # changing how this client is opened or how the collection is populated.
     client = chromadb.PersistentClient(path=str(CHROMA_DIR))
 
-    # Rebuild from scratch so deletions/renames don't leave stale chunks.
-    try:
-        client.delete_collection(COLLECTION_NAME)
-    except Exception:
-        pass  # Collection didn't exist yet — fine.
-    collection = client.create_collection(COLLECTION_NAME)
-
-    # Each dict here IS a valid ChromaDB Metadata (Mapping[str, ...]), but
+    # Each metadata dict IS a valid ChromaDB Metadata (Mapping[str, ...]), but
     # `list` is invariant: list[dict] isn't assignable to List[Metadata], so the
-    # type checker flags the call. It's correct at runtime; ignore just this arg.
-    collection.add(documents=documents, metadatas=metadatas, ids=ids)  # type: ignore[arg-type]
+    # type checker flags add()/upsert(). Correct at runtime; ignore just that arg.
+    if args.rebuild:
+        # Escape hatch: nuke-and-pave, the original behavior.
+        try:
+            client.delete_collection(COLLECTION_NAME)
+        except Exception:
+            pass  # Collection didn't exist yet — fine.
+        collection = client.create_collection(COLLECTION_NAME)
+        collection.add(documents=documents, metadatas=metadatas, ids=ids)  # type: ignore[arg-type]
+        console.print(
+            f"[bold green]Rebuilt[/bold green] {len(documents)} chunks "
+            f"from {len({m['source'] for m in metadatas})} files "
+            f"into '{COLLECTION_NAME}' at {CHROMA_DIR.name}/"
+        )
+        return
+
+    # Incremental: upsert only new/changed chunks, delete stale ones.
+    collection = client.get_or_create_collection(COLLECTION_NAME)
+    existing = collection.get(include=["documents"])
+    existing_docs = dict(zip(existing["ids"], existing["documents"] or []))
+    upsert_ids, delete_ids = plan_index_update(ids, documents, existing_docs)
+
+    index_of = {cid: i for i, cid in enumerate(ids)}
+    if delete_ids:
+        collection.delete(ids=delete_ids)
+    if upsert_ids:
+        collection.upsert(
+            ids=upsert_ids,
+            documents=[documents[index_of[cid]] for cid in upsert_ids],
+            metadatas=[metadatas[index_of[cid]] for cid in upsert_ids],  # type: ignore[arg-type]
+        )
 
     console.print(
-        f"[bold green]Indexed[/bold green] {len(documents)} chunks "
-        f"from {len({m['source'] for m in metadatas})} files "
-        f"into '{COLLECTION_NAME}' at {CHROMA_DIR.name}/"
+        f"[bold green]Indexed[/bold green] {len(ids)} chunks "
+        f"from {len({m['source'] for m in metadatas})} files into '{COLLECTION_NAME}' "
+        f"([green]{len(upsert_ids)}[/green] embedded/updated, "
+        f"[yellow]{len(delete_ids)}[/yellow] removed) at {CHROMA_DIR.name}/"
     )
 
 

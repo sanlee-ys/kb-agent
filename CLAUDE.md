@@ -23,7 +23,8 @@ uv run python scripts/ingest.py NAME      # ingest a single project by name
 uv run python scripts/ingest.py --force   # regenerate existing stubs (see note below)
 uv run python scripts/ingest.py --check   # report project stubs that drifted from source (no writes)
 uv run python scripts/ingest.py --accept  # bless current source as each stub's baseline
-uv run python scripts/index.py            # (re)build the ChromaDB vector index
+uv run python scripts/index.py            # incrementally update the ChromaDB vector index
+uv run python scripts/index.py --rebuild  # drop and re-embed the index from scratch
 
 # Run the agent:
 uv run python app.py                      # Gradio chat UI at http://127.0.0.1:7860
@@ -78,9 +79,13 @@ projects.yaml → ingest.py → kb/*.md → index.py → chroma_db/ → tools.se
 2. **`scripts/index.py`** chunks every `kb/**/*.md` (splits on Markdown headings,
    caps chunks at ~1200 chars) and embeds them into a persistent ChromaDB collection
    `knowledge_base` using the **built-in local `all-MiniLM-L6-v2` model — no API key,
-   no network**. The collection is dropped and rebuilt from scratch each run, so
-   deleted/renamed KB files leave no stale chunks. Chunk metadata carries
-   `source` (repo-relative path), `kind` (`projects`/`libraries`/`notes`), and `name`.
+   no network**. It updates **incrementally by default**: it diffs the freshly-collected
+   chunks against the persisted collection (the collection itself is the record of what
+   was indexed last run — no separate manifest) and re-embeds only new/changed chunks
+   while deleting chunks from removed/renamed files, so the result is identical to a full
+   rebuild without re-embedding everything. `index.py --rebuild` drops and re-embeds from
+   scratch (the escape hatch). Chunk metadata carries `source` (repo-relative path),
+   `kind` (`projects`/`libraries`/`notes`), and `name`.
 3. **`agent/tools.py`** exposes four tools to the model: `search_kb(query, kind?,
    n_results?)` (semantic query over ChromaDB, optional `kind` filter) and
    `list_projects()` (reads `projects.yaml`) are both local; the other two are
