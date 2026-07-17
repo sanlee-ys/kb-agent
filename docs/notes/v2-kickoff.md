@@ -109,13 +109,15 @@ Two small, independent pieces:
    `--force`. The fingerprint hashes exactly the prompt inputs, so hand-edits to a stub never
    false-trip it. *First run on a machine reports every stub `untracked` until `--accept`
    (or a `--force` regenerate) establishes baselines.*
-2. **Incremental re-index — still parked.** Make `index.py` re-embed only the chunks whose
-   files changed rather than dropping the whole collection. Deliberately **not** done with
-   piece 1: it's a perf refinement "worth it only once the KB is big enough that a full
-   rebuild is felt" (see below), and at today's handful of stubs the drop-and-rebuild is
-   instant *and* guarantees zero stale chunks. Adding change-tracking now trades that
-   simplicity for correctness risk with no measurable win — pick it up when a rebuild is
-   actually slow.
+2. **Incremental re-index — SHIPPED.** `index.py` now updates incrementally by default: it
+   diffs the freshly-collected chunks against the persisted collection (which *is* the record
+   of the last run — no separate manifest) and re-embeds only new/changed chunks while
+   deleting chunks from removed/renamed files, so the result is identical to a full rebuild
+   without re-embedding everything. `index.py --rebuild` keeps the original drop-and-pave as
+   an escape hatch. The correctness invariant the old drop-and-rebuild guaranteed — no stale
+   chunks — is preserved (the diff deletes anything no longer desired) and covered by a real
+   ChromaDB round-trip test. The CVE-2026-45829 assessment was re-checked and still holds:
+   same embedded `PersistentClient`, same local-only writer, no custom `embedding_function`.
 
 Unlike the v2 milestone, this track has **nothing to measure** — it's plumbing. That's
 exactly why it's a chore and not the milestone: it fixes a real bug but produces no eval, so

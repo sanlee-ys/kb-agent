@@ -9,7 +9,7 @@ from __future__ import annotations
 import httpx
 
 import scripts.index as index
-from scripts.index import MAX_CHUNK_CHARS, chunk_markdown
+from scripts.index import MAX_CHUNK_CHARS, chunk_markdown, plan_index_update
 
 
 def test_chunk_markdown_splits_on_headings():
@@ -56,6 +56,46 @@ def test_collect_documents_builds_parallel_arrays(tmp_path, monkeypatch):
     assert {m["name"] for m in metadatas} == {"foo", "bar"}
     assert len(set(ids)) == 2  # ids are unique
     assert all("#" in i for i in ids)  # ids follow "kind/name#i"
+
+
+# --- plan_index_update (incremental diff) ---
+
+
+def test_plan_index_update_new_ids_are_upserted():
+    upsert, delete = plan_index_update(["a#0", "b#0"], ["alpha", "beta"], {})
+    assert set(upsert) == {"a#0", "b#0"}
+    assert delete == []
+
+
+def test_plan_index_update_unchanged_ids_are_skipped():
+    existing = {"a#0": "alpha", "b#0": "beta"}
+    upsert, delete = plan_index_update(["a#0", "b#0"], ["alpha", "beta"], existing)
+    assert upsert == []
+    assert delete == []
+
+
+def test_plan_index_update_changed_text_is_upserted():
+    existing = {"a#0": "alpha", "b#0": "beta"}
+    upsert, delete = plan_index_update(["a#0", "b#0"], ["ALPHA v2", "beta"], existing)
+    assert upsert == ["a#0"]  # only the changed one
+    assert delete == []
+
+
+def test_plan_index_update_missing_desired_ids_are_deleted():
+    # "b#0" was indexed before but is no longer desired (file deleted/renamed).
+    existing = {"a#0": "alpha", "b#0": "beta"}
+    upsert, delete = plan_index_update(["a#0"], ["alpha"], existing)
+    assert upsert == []
+    assert delete == ["b#0"]
+
+
+def test_plan_index_update_combined():
+    existing = {"keep#0": "same", "change#0": "old", "gone#0": "stale"}
+    desired_ids = ["keep#0", "change#0", "new#0"]
+    desired_docs = ["same", "new text", "fresh"]
+    upsert, delete = plan_index_update(desired_ids, desired_docs, existing)
+    assert set(upsert) == {"change#0", "new#0"}  # changed + brand-new
+    assert delete == ["gone#0"]  # removed source
 
 
 # --- collect_notes_from_api ---

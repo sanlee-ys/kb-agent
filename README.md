@@ -30,6 +30,8 @@ projects.yaml ──▶ ingest.py ──▶ kb/*.md ──▶ index.py ──▶
   `ingest.py --accept` records the current source as the baseline without regenerating.
 - **`scripts/index.py`** — chunks `kb/*.md` and embeds them into a local ChromaDB
   collection using the built-in `all-MiniLM-L6-v2` model (no API key, runs locally).
+  Updates incrementally by default (re-embeds only changed chunks, drops stale ones);
+  `--rebuild` re-embeds from scratch.
 - **`agent/tools.py`** — four tools. `search_kb` (RAG over the local KB) and
   `list_projects` are local; `classify_snippet` and `search_notes` are the
   *ecosystem* seams — they call a *tracked project's own HTTP service* so the agent can
