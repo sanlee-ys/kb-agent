@@ -162,6 +162,26 @@ For Claude Desktop, add the equivalent to `claude_desktop_config.json`:
 directory, and it tells `uv` which project's environment to use. The server itself
 resolves the repo root from `__file__`, so the KB and index are found either way.
 
+## Retrieval eval
+
+`search_kb`'s quality is measured, not assumed: [`eval/gold_set.yaml`](eval/gold_set.yaml)
+is a hand-labeled set of 27 queries → expected source files (scoped in
+[`docs/notes/v2-kickoff.md`](docs/notes/v2-kickoff.md)), and the harness reports
+recall@1/@3/@5 and MRR — overall, per kind, and for the adversarial slice
+(jargon-vs-paraphrase pairs where lexical and dense retrieval should disagree).
+Retrieval-only and fully local: no API key, just an indexed KB.
+
+```bash
+uv run python scripts/eval_retrieval.py                # the hard setting: no kind filter
+uv run python scripts/eval_retrieval.py --kind-filter  # give the retriever each query's kind
+```
+
+First measured numbers (2026-07-17, 325-chunk index): unfiltered recall@5 **0.926** /
+MRR **0.781**; with the kind filter recall@3 **1.000** / MRR **0.920**. Both unfiltered
+misses were cross-kind crowding — indexed non-content files outranking the right stub —
+which turns "should the notes ingest filter out repo scaffolding?" from a hunch into a
+measurable next change.
+
 ## Observability
 
 A tool-use loop is a distributed system: one `ask()` fans out into several model
