@@ -1,0 +1,199 @@
+# Retrieval gold set for search_kb — the v2 measurement baseline.
+#
+# Scope per docs/notes/v2-kickoff.md, "Settled: gold-set scope (2026-07-17)":
+# 27 queries — 8 projects / 5 libraries / 10 notes / 4 adversarial (a tag, not a
+# kind; two jargon-vs-paraphrase pairs placed where lexical and dense retrieval
+# should disagree). Metrics: recall@1/@3/@5 and MRR (k=5 = search_kb's default).
+#
+# Labels are `expected_sources`: the chunk `source` metadata values that count as
+# a hit. Paths here use forward slashes; the index records kb/ files with OS
+# separators (e.g. `kb\projects\notes-api.md` on Windows) and external notes as
+# `learning-notes/<filename>.md` (flattened to the file name). The harness must
+# normalize separators before comparing. A query is a hit if ANY expected source
+# appears in the top k.
+#
+# Provenance (honesty note): queries and proposed labels were drafted by Claude,
+# grounded in the actual stub/note contents at the time of writing; San's
+# per-entry review of this file before merge is the hand-label pass required by
+# the v2 scope. Do not tune queries to what the current retriever returns — the
+# gold set is what SHOULD come back, and it must stay independent of any
+# retriever under test.
+
+queries:
+  # ---- projects (8) --------------------------------------------------------
+  - id: proj-01
+    kind: projects
+    query: "what does the notes-api project depend on"
+    expected_sources:
+      - kb/projects/notes-api.md
+
+  - id: proj-02
+    kind: projects
+    query: "which project classifies defense news articles into a category and an operational domain"
+    expected_sources:
+      - kb/projects/defense-news-classifier.md
+
+  - id: proj-03
+    kind: projects
+    query: "how does the classifier handle a prediction outside the label enum"
+    expected_sources:
+      - kb/projects/defense-news-classifier.md
+
+  - id: proj-04
+    kind: projects
+    query: "how are notes enriched with tags after they are created"
+    expected_sources:
+      - kb/projects/notes-api.md
+
+  - id: proj-05
+    kind: projects
+    query: "which project was originally a Java Spring Boot exercise before being ported to Python"
+    expected_sources:
+      - kb/projects/notes-api.md
+
+  - id: proj-06
+    kind: projects
+    query: "which tools does the kb-agent MCP server expose, and why only those"
+    expected_sources:
+      - kb/projects/kb-agent.md
+
+  - id: proj-07
+    kind: projects
+    query: "what accuracy did the defense news classifier measure on its gold set"
+    expected_sources:
+      - kb/projects/defense-news-classifier.md
+
+  - id: proj-08
+    kind: projects
+    query: "which projects call another project's HTTP service"
+    expected_sources:
+      - kb/projects/kb-agent.md
+      - kb/projects/notes-api.md
+
+  # ---- libraries (5) -------------------------------------------------------
+  - id: lib-01
+    kind: libraries
+    query: "which library provides BM25 ranking for keyword-based retrieval"
+    expected_sources:
+      - kb/libraries/rank-bm25.md
+
+  - id: lib-02
+    kind: libraries
+    query: "which library maps Python classes to database tables"
+    expected_sources:
+      - kb/libraries/sqlalchemy.md
+
+  - id: lib-03
+    kind: libraries
+    query: "which library validates API request and response schemas from type annotations"
+    expected_sources:
+      - kb/libraries/pydantic.md
+
+  - id: lib-04
+    kind: libraries
+    query: "what server runs a FastAPI app and speaks ASGI"
+    expected_sources:
+      - kb/libraries/uvicorn.md
+
+  - id: lib-05
+    kind: libraries
+    query: "which SDK is used to call the Claude Messages API"
+    expected_sources:
+      - kb/libraries/anthropic.md
+
+  # ---- notes (10) ----------------------------------------------------------
+  - id: note-01
+    kind: notes
+    query: "how do embeddings and vector stores work"
+    expected_sources:
+      - learning-notes/07-embeddings-and-vector-stores.md
+
+  - id: note-02
+    kind: notes
+    query: "what is eval-driven development"
+    expected_sources:
+      - learning-notes/02-eval-driven-development.md
+
+  - id: note-03
+    kind: notes
+    query: "how does the agentic tool-use loop work"
+    expected_sources:
+      - learning-notes/05-the-agentic-tool-use-loop.md
+
+  - id: note-04
+    kind: notes
+    query: "how do I keep API keys and secrets out of a git repo"
+    expected_sources:
+      - learning-notes/10-secrets-and-env.md
+
+  - id: note-05
+    kind: notes
+    query: "what do the three numbers in a semantic version mean"
+    expected_sources:
+      - learning-notes/15-semantic-versioning.md
+
+  - id: note-06
+    kind: notes
+    query: "why use uv and a lockfile for reproducible Python environments"
+    expected_sources:
+      - learning-notes/11-reproducible-environments-uv.md
+
+  - id: note-07
+    kind: notes
+    query: "what are database migrations and why do they matter"
+    expected_sources:
+      - learning-notes/19-database-migrations.md
+
+  - id: note-08
+    kind: notes
+    query: "how do checkpointing and retries make a long-running pipeline robust"
+    expected_sources:
+      - learning-notes/12-checkpoint-resume-and-retries.md
+
+  - id: note-09
+    kind: notes
+    query: "when should a task be routed to a cheaper model tier"
+    expected_sources:
+      - learning-notes/09-tiered-model-routing.md
+
+  - id: note-10
+    kind: notes
+    query: "how do you keep costs under control when fanning out many model calls"
+    expected_sources:
+      - learning-notes/27-fan-out-cost-control.md
+
+  # ---- adversarial (4 = 2 jargon-vs-paraphrase pairs) ----------------------
+  # Same expected source within a pair; the two phrasings should pull lexical
+  # and dense retrieval in different directions. These carry the later
+  # hybrid-retrieval decision.
+  - id: adv-01
+    kind: notes
+    tags: [adversarial]
+    pair: rag
+    query: "what is RAG"
+    expected_sources:
+      - learning-notes/06-rag-answering-from-your-own-docs.md
+
+  - id: adv-02
+    kind: notes
+    tags: [adversarial]
+    pair: rag
+    query: "how can a model answer questions using my own documents instead of its training data"
+    expected_sources:
+      - learning-notes/06-rag-answering-from-your-own-docs.md
+
+  - id: adv-03
+    kind: projects
+    tags: [adversarial]
+    pair: sys-003
+    query: "what is a SYS-003 observation"
+    expected_sources:
+      - kb/projects/kb-agent.md
+
+  - id: adv-04
+    kind: projects
+    tags: [adversarial]
+    pair: sys-003
+    query: "what shape do the agent's tool results take, and how does it recover when a tool fails"
+    expected_sources:
+      - kb/projects/kb-agent.md
