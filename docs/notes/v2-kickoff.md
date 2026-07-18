@@ -79,6 +79,44 @@ it was always about measurement rather than the consumer:
   notes) **before** building the harness. If end-answer quality gets measured too, *that*
   layer may want an LLM judge — keep it distinct from the retrieval metric.
 
+### Settled: gold-set scope (2026-07-17)
+
+Answered with San; the harness builds against this, not against a fresh debate.
+
+- **27 queries, weighted to the real corpus — not an even three-way split.** The indexed
+  corpus is lopsided: ~30 notes files (the learning-notes set plus glossary) against 2
+  project stubs and 2 library stubs. An even split would misrepresent what retrieval
+  actually searches. The split: **8 projects** (dependencies, design decisions, MCP-server
+  internals), **5 libraries**, **10 notes**, **4 adversarial**.
+- **Adversarial queries are a tag, not a kind.** Each is one of a pair — an exact-jargon
+  phrasing vs. a paraphrase of the same need — placed where lexical and dense retrieval
+  should *disagree*. Spread across kinds. These four carry the hybrid-retrieval decision;
+  the other 23 establish the baseline.
+- **Labels:** `query → expected source file(s)`, matching the chunk `source` metadata.
+  Hand-labeled by San. No LLM judge at the retrieval layer.
+- **Metrics:** recall@1/@3/@5 and MRR. k=5 matches `search_kb`'s default `n_results`.
+- **Home:** `eval/gold_set.yaml`, in-repo, public/synthetic-safe like everything else.
+
+**Step 0 — bring the KB to its intended state before labeling.** Grounding this scope in
+the actual corpus found three gaps; labeling against the KB as-is would bake them into the
+gold set:
+
+1. `kb/projects/notes-api.md` doesn't exist — notes-api is tracked in `projects.yaml` but
+   its stub was never generated. Queries about it would have no correct source.
+2. Library coverage is two files (`anthropic`, `pandas`) even though ingest is designed to
+   write one stub per dependency. A 5-query library slice over 2 files measures nothing.
+3. `kb/.ingest-manifest.json` doesn't exist anywhere — the `--check` freshness gate shipped
+   in #44 has no baselines yet.
+
+So step 0 is: a full `ingest.py` pass (fills 1 and 2), then `ingest.py --accept` (fixes 3),
+then `index.py`. Only then label.
+
+**A deliberate non-fix:** `index.py` rglobs the whole notes dir, so learning-notes'
+`CLAUDE.md`, `README.md`, and generated `graphify-out/` output get indexed as `notes`
+chunks. Left in place on purpose — whether that noise hurts retrieval is exactly the kind
+of question the gold set exists to answer with a number instead of a vibe. If it shows up
+in the misses, filtering becomes a measured change like any other.
+
 ## Near-term chore (a fix, not the v2 milestone): keep the KB fresh
 
 This is a **separate track** from the v2 milestone above — a correctness chore, not a
@@ -139,7 +177,8 @@ masquerade as v2.
 1. Open a **new session** (fresh context budget).
 2. Read this file and the `README.md` to load the pivot cold — v2 is now inward-facing
    (kb-agent's own retrieval), not a cross-repo backbone.
-3. Answer the surviving scoping question *with San* — gold-set size and query selection —
-   before writing the harness. Surface the choices and confirm, don't silently pick.
+3. The scoping question is **settled** (see *Settled: gold-set scope* above) — don't
+   re-open it. Start at **step 0** (full ingest → `--accept` → `index.py`), then label the
+   27 queries per the settled split.
 4. Build in small steps. Measure first; ship the negative result if that's what the numbers
    say.
