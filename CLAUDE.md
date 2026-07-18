@@ -26,6 +26,10 @@ uv run python scripts/ingest.py --accept  # bless current source as each stub's 
 uv run python scripts/index.py            # incrementally update the ChromaDB vector index
 uv run python scripts/index.py --rebuild  # drop and re-embed the index from scratch
 
+# Retrieval eval (offline, no API key; needs an indexed KB):
+uv run python scripts/eval_retrieval.py                # recall@1/@3/@5 + MRR vs eval/gold_set.yaml
+uv run python scripts/eval_retrieval.py --kind-filter  # same, passing each query's kind to search_kb
+
 # Run the agent:
 uv run python app.py                      # Gradio chat UI at http://127.0.0.1:7860
 uv run python agent/agent.py              # CLI chat loop
@@ -40,7 +44,7 @@ claude mcp list                           # check it's registered and Connected
 ```
 
 Tests live in `tests/` (`test_tools.py`, `test_index.py`, `test_ingest.py`,
-`test_kb_roundtrip.py`, `test_mcp_server.py`). Most run offline — no API key, no network — and
+`test_kb_roundtrip.py`, `test_mcp_server.py`, `test_eval_retrieval.py`). Most run offline — no API key, no network — and
 `tests/test_tools.py` includes `_obs()`, a grader that asserts every tool result conforms
 to the SYS-003 observation shape. The exception is `test_kb_roundtrip.py`, marked
 `@pytest.mark.integration`: it builds a **real ChromaDB** in a temp dir and runs the
