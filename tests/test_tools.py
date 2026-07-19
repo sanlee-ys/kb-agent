@@ -157,12 +157,20 @@ def test_classify_snippet_happy_path(tmp_path, monkeypatch):
 
         @staticmethod
         def json():
-            return {"category": "procurement", "operational_domain": "air"}
+            return {
+                "category": "procurement",
+                "operational_domain": "air",
+                "region": "americas",
+            }
 
     monkeypatch.setattr(tools.httpx, "post", lambda *a, **k: FakeResponse())
     data = _obs(classify_snippet("The Pentagon awarded a contract for 24 F-35s."))
     assert data["status"] == "success"
-    assert data["payload"] == {"category": "procurement", "operational_domain": "air"}
+    assert data["payload"] == {
+        "category": "procurement",
+        "operational_domain": "air",
+        "region": "americas",
+    }
     assert "defense-news-classifier service" in data["source"]
 
 
@@ -238,11 +246,19 @@ def test_allowed_hosts_env_widens_the_allowlist(tmp_path, monkeypatch):
 
 
 # --- Frozen /classify contract (SYS-004) -------------------------------------
-# The /classify contract is frozen: a 200 must carry a JSON object with both
-# `category` and `operational_domain`. These tests pin both ends of that — a
-# well-formed 200 yields a SUCCESS observation, and a 200 that breaks the
-# contract yields an ERROR observation (never a raised exception). Both still
-# pass the SYS-003 _obs() grader.
+# The /classify contract is frozen: a 200 must carry a JSON object with
+# `category`, `operational_domain` and `region` (the third field arrived with
+# the classifier's v3.0.0). These tests pin both ends of that — a well-formed
+# 200 yields a SUCCESS observation, and a 200 that breaks the contract yields
+# an ERROR observation (never a raised exception). Both still pass the SYS-003
+# _obs() grader.
+#
+# NOTE ON WHAT THESE TESTS DO AND DO NOT PROVE. They assert this consumer
+# against a stub *this file defines*. They cannot observe the provider. When the
+# classifier shipped `region` on 2026-07-18 these tests stayed green while the
+# consumer was silently out of contract, which is exactly the failure the
+# SYS-004 amendment records. Treat them as consumer unit tests, not as a
+# cross-repo guard — that guard does not exist yet.
 
 
 def _classifier_projects_yaml(tmp_path, monkeypatch):
@@ -272,13 +288,18 @@ class _FakeResponse:
 
 def test_classify_snippet_contract_well_formed_200_is_success(tmp_path, monkeypatch):
     _classifier_projects_yaml(tmp_path, monkeypatch)
-    body = {"category": "technology", "operational_domain": "air"}
+    body = {
+        "category": "technology",
+        "operational_domain": "air",
+        "region": "indo-pacific",
+    }
     monkeypatch.setattr(tools.httpx, "post", lambda *a, **k: _FakeResponse(body))
 
     data = _obs(classify_snippet("A new autonomous drone swarm was demonstrated."))
     assert data["status"] == "success"
     assert data["payload"]["category"] == "technology"
     assert data["payload"]["operational_domain"] == "air"
+    assert data["payload"]["region"] == "indo-pacific"
 
 
 def test_classify_snippet_contract_empty_200_is_error(tmp_path, monkeypatch):
@@ -300,6 +321,22 @@ def test_classify_snippet_contract_partial_200_is_error(tmp_path, monkeypatch):
     data = _obs(classify_snippet("some snippet"))
     assert data["status"] == "error"
     assert "operational_domain" in data["summary"]
+
+
+def test_classify_snippet_contract_missing_region_is_error(tmp_path, monkeypatch):
+    """A pre-v3.0.0 two-field body now violates the contract.
+
+    This is the case that went undetected: the provider added `region` and this
+    consumer kept accepting two-field bodies. It is now a contract violation in
+    the same way a missing `category` is.
+    """
+    _classifier_projects_yaml(tmp_path, monkeypatch)
+    body = {"category": "technology", "operational_domain": "air"}
+    monkeypatch.setattr(tools.httpx, "post", lambda *a, **k: _FakeResponse(body))
+
+    data = _obs(classify_snippet("some snippet"))
+    assert data["status"] == "error"
+    assert "region" in data["summary"]
 
 
 def test_classify_snippet_contract_non_json_200_is_error(tmp_path, monkeypatch):

@@ -39,5 +39,14 @@ jobs:
       - name: Lint
         run: uv run ruff check .
 
+      # The consumer half of the SYS-004 guard, and the only check in this repo
+      # that looks OUTWARD. Every other test asserts this code against fixtures
+      # this repo controls, which is why the provider adding `region` went
+      # undetected here for a full day while CI stayed green. Fetches the
+      # provider's published contract and fails on divergence. A fetch failure
+      # (GitHub outage) warns and passes; a successful fetch showing drift fails.
+      - name: Contract matches the provider (SYS-004)
+        run: uv run python scripts/check_classify_contract.py
+
       - name: Test
         run: uv run pytest

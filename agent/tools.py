@@ -196,6 +196,15 @@ def list_projects() -> str:
 
 CLASSIFIER_PROJECT = "defense-news-classifier"
 
+# This consumer's belief about the frozen /classify response shape (SYS-004).
+# It lives in one place so the runtime check and the cross-repo contract check
+# (scripts/check_classify_contract.py) can never disagree with each other — the
+# whole failure this guard exists to prevent is two copies of a shape drifting
+# apart unnoticed. The provider publishes the authoritative list at
+# contracts/classify-response.schema.json in its own repo; that script asserts
+# this tuple still matches it.
+CLASSIFY_REQUIRED_FIELDS = ("category", "operational_domain", "region")
+
 
 def _project_endpoint(name: str) -> str | None:
     """Return the configured HTTP base URL for a named project.
@@ -296,9 +305,10 @@ def classify_snippet(text: str) -> str:
 
     Returns:
         A SYS-003 observation (JSON string). On success, ``payload`` holds the
-        ``category`` and ``operational_domain`` labels. Every failure path — no
-        endpoint, unreachable service, transport error, or non-200 — returns an
-        error observation with root-cause, remediation, and a stop condition.
+        ``category``, ``operational_domain`` and ``region`` labels. Every failure
+        path — no endpoint, unreachable service, transport error, or non-200 —
+        returns an error observation with root-cause, remediation, and a stop
+        condition.
     """
     endpoint = _project_endpoint(CLASSIFIER_PROJECT)
     if not endpoint:
@@ -373,7 +383,7 @@ def classify_snippet(text: str) -> str:
 
     missing = [
         key
-        for key in ("category", "operational_domain")
+        for key in CLASSIFY_REQUIRED_FIELDS
         if not isinstance(data, dict) or key not in data
     ]
     if missing:
@@ -381,7 +391,7 @@ def classify_snippet(text: str) -> str:
             "error",
             f"The {CLASSIFIER_PROJECT} service returned a 200 response that "
             f"violates the frozen /classify contract (SYS-004): expected a JSON "
-            f"object with 'category' and 'operational_domain', missing "
+            f"object with 'category', 'operational_domain' and 'region', missing "
             f"{', '.join(missing)}.",
             [
                 f"Service body: {response.text}",
@@ -391,10 +401,12 @@ def classify_snippet(text: str) -> str:
         )
 
     return _success(
-        f"Classified as {data['category']} / {data['operational_domain']}.",
+        f"Classified as {data['category']} / {data['operational_domain']} / "
+        f"{data['region']}.",
         payload={
             "category": data["category"],
             "operational_domain": data["operational_domain"],
+            "region": data["region"],
         },
         source=f"{CLASSIFIER_PROJECT} service, {url}",
     )
