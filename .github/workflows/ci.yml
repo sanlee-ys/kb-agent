@@ -48,5 +48,12 @@ jobs:
       - name: Contract matches the provider (SYS-004)
         run: uv run python scripts/check_classify_contract.py
 
+      # The same guard for the second seam this repo consumes: notes-api's
+      # GET /notes (SYS-006). That contract is OPEN — an added provider field is
+      # backward-compatible — so this fails only when a field search_notes
+      # actually reads disappears, which otherwise degrades silently to None.
+      - name: Notes read contract matches the provider (SYS-006)
+        run: uv run python scripts/check_notes_contract.py
+
       - name: Test
         run: uv run pytest

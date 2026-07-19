@@ -414,6 +414,14 @@ def classify_snippet(text: str) -> str:
 
 NOTES_PROJECT = "notes-api"
 
+# The GET /notes fields this consumer actually reads (SYS-006). notes-api returns
+# more than these and that is fine — the read contract is deliberately open, so an
+# added provider field is backward-compatible. What breaks this tool is one of
+# THESE disappearing, and because they are read with .get() the failure is silent:
+# notes come back with None values and nothing looks broken until an answer is
+# wrong. scripts/check_notes_contract.py asserts they still exist upstream.
+NOTES_READ_FIELDS = ("id", "title", "content", "tags")
+
 
 def search_notes(query: str | None = None, tag: str | None = None) -> str:
     """Search the user's live notes via the notes-api service's GET /notes endpoint.
@@ -547,12 +555,7 @@ def search_notes(query: str | None = None, tag: str | None = None) -> str:
         return _problem("warning", "No notes matched the given filters.", next_actions)
 
     payload = [
-        {
-            "id": n.get("id"),
-            "title": n.get("title"),
-            "content": n.get("content"),
-            "tags": n.get("tags", []),
-        }
+        {field: n.get(field, [] if field == "tags" else None) for field in NOTES_READ_FIELDS}
         for n in note_objs
     ]
     return _success(
