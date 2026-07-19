@@ -6,7 +6,7 @@ version = "0.1.0"
 # which tops out at cp313. See the tool.uv constraint below.
 requires-python = ">=3.11,<3.14"
 dependencies = [
-    "anthropic>=0.116.0",
+    "anthropic>=0.117.0",
     "chromadb>=0.5.0",
     # Floor at 6.20.0: that release adopts Starlette's HTTP_422_UNPROCESSABLE_CONTENT
     # (gradio-app/gradio#13555), which removes the per-request deprecation warning we
@@ -23,7 +23,7 @@ dependencies = [
     # the SDK only records/exports when KB_AGENT_TRACING is set (see
     # agent/telemetry.py). API + SDK are core so the no-op-when-disabled path works
     # out of the box; the OTLP wire exporter is the optional `otlp` extra below.
-    "opentelemetry-api>=1.43.0",
+    "opentelemetry-api>=1.44.0",
     "opentelemetry-sdk>=1.20.0",
 ]
 
