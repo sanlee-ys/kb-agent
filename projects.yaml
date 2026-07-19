@@ -1,7 +1,7 @@
 projects:
   - name: defense-news-classifier
     path: C:\Users\sanle\code\defense-news-classifier
-    description: NLP pipeline for classifying defense-related news articles
+    description: LLM classifier for public defense-news snippets — assigns category, operational domain, and region via structured tool-use output, scored against a human-labeled eval that gates CI
     # Optional: if a project runs an HTTP service, list its base URL here. That
     # makes the project *callable* by the agent (see classify_snippet in tools.py),
     # not just searchable. Start this one with, from the classifier's directory:
