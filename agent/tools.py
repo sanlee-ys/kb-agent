@@ -28,6 +28,10 @@ triples the places that enum is duplicated. Revisit only if the SDK ever lets
 you supply an existing schema dict + description without duplication, i.e. once
 auto-generation and the single-source-of-truth convention stop being in tension.
 
+Canonical record: ``decisions/ADR-001-manual-tool-loop-over-sdk-runner.md``.
+(This summary predates the repo having a decisions/ tier at all — the full
+record lived here until 2026-07-18. It stays as an inline pointer.)
+
 Observation contract (architecture/SYS-003)
 --------------------------------------------
 Every tool returns a JSON string with a consistent shape, so the model can act on
