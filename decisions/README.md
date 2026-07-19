@@ -7,6 +7,12 @@ cross-repo decisions get a `SYS-NNN` in the architecture repo, repo-local ones l
 | # | Title | Status |
 |---|-------|--------|
 | [ADR-001](ADR-001-manual-tool-loop-over-sdk-runner.md) | Keep the manual tool-use loop; reject the SDK's `tool_runner` | Accepted |
+| [ADR-002](ADR-002-agent-tool-seam-threat-model.md) | Adopt the tool-seam threat model, and keep it in kb-agent's own namespace | Accepted |
+| [ADR-003](ADR-003-rescope-v2-inward.md) | Retire the shared retrieval backbone; rescope v2 inward | Accepted |
+| [ADR-004](ADR-004-retrieval-gold-set-scope.md) | Scope the retrieval gold set at 27 weighted queries, with no LLM judge | Accepted |
+| [ADR-005](ADR-005-accept-chromadb-cve.md) | Accept CVE-2026-45829 (chromadb) as tolerable risk | Accepted |
+| [ADR-006](ADR-006-mcp-as-second-transport.md) | Serve MCP as a second transport over the same tools, not a second implementation | Accepted |
+| [ADR-007](ADR-007-incremental-index-and-stub-protection.md) | Never overwrite a stub without `--force`; update the index incrementally by default | Accepted |
 
 ## Why this tier was missing, and what it is not
 
@@ -37,12 +43,18 @@ correctly from below. What was missing was the local tier it should have landed 
 Recorded so the remainder is a list rather than a vague intention. Each of these is a real
 decision currently living in prose:
 
-- Retire the shared retrieval backbone; rescope v2 inward — `docs/notes/v2-kickoff.md`
-- Gold-set scope: 27 queries, weighted 8/5/10/4, no LLM judge — `docs/notes/v2-kickoff.md`
-- Accept CVE-2026-45829 as tolerable — `docs/notes/chromadb-cve-2026-45829-assessment.md`
-- MCP server as a second *transport*, not a second implementation — `CLAUDE.md`
-- Incremental re-index by default, `--rebuild` as the escape hatch — `CLAUDE.md`
-- Stubs never overwritten without `--force`; fingerprint manifest — `CLAUDE.md`
+**Nothing left — the backlog is empty as of 2026-07-18.** All six entries originally listed
+here have an ADR: rescoping v2 inward → [ADR-003](ADR-003-rescope-v2-inward.md); the gold-set
+scope → [ADR-004](ADR-004-retrieval-gold-set-scope.md); the chromadb CVE acceptance →
+[ADR-005](ADR-005-accept-chromadb-cve.md); MCP as a second transport →
+[ADR-006](ADR-006-mcp-as-second-transport.md); and the two `ingest.py`/`index.py` rules
+(stub protection, incremental re-index) migrated together as
+[ADR-007](ADR-007-incremental-index-and-stub-protection.md), since they are one decision about
+not destroying work by default. The tool-seam threat model was migrated in the same pass as
+[ADR-002](ADR-002-agent-tool-seam-threat-model.md).
+
+The section stays because "migration completed" is itself worth recording. If a future audit
+finds another decision sitting in prose, list it here rather than fixing it silently.
 
 ## Conventions
 
