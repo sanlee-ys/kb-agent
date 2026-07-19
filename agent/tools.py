@@ -196,6 +196,15 @@ def list_projects() -> str:
 
 CLASSIFIER_PROJECT = "defense-news-classifier"
 
+# This consumer's belief about the frozen /classify response shape (SYS-004).
+# It lives in one place so the runtime check and the cross-repo contract check
+# (scripts/check_classify_contract.py) can never disagree with each other — the
+# whole failure this guard exists to prevent is two copies of a shape drifting
+# apart unnoticed. The provider publishes the authoritative list at
+# contracts/classify-response.schema.json in its own repo; that script asserts
+# this tuple still matches it.
+CLASSIFY_REQUIRED_FIELDS = ("category", "operational_domain", "region")
+
 
 def _project_endpoint(name: str) -> str | None:
     """Return the configured HTTP base URL for a named project.
@@ -374,7 +383,7 @@ def classify_snippet(text: str) -> str:
 
     missing = [
         key
-        for key in ("category", "operational_domain", "region")
+        for key in CLASSIFY_REQUIRED_FIELDS
         if not isinstance(data, dict) or key not in data
     ]
     if missing:
