@@ -26,14 +26,14 @@ Run locally:
 
 from __future__ import annotations
 
-import json
 import sys
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _contract_fetch import fetch_contract, report  # noqa: E402
 
 from agent.tools import CLASSIFY_REQUIRED_FIELDS  # noqa: E402
 
@@ -41,34 +41,6 @@ CONTRACT_URL = (
     "https://raw.githubusercontent.com/sanlee-ys/defense-news-classifier/"
     "main/contracts/classify-response.schema.json"
 )
-TIMEOUT_SECONDS = 15
-
-
-def fetch_contract(url: str = CONTRACT_URL) -> dict | None:
-    """Fetch the provider's published contract, or None if it is unreachable.
-
-    Returns:
-        The parsed schema, or ``None`` when the artifact could not be fetched or
-        parsed — the caller treats that as a warning, not a failure.
-    """
-    try:
-        with urllib.request.urlopen(url, timeout=TIMEOUT_SECONDS) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            print(
-                "WARNING: the provider has not published "
-                "contracts/classify-response.schema.json on main yet.\n"
-                "         This check is INERT until it does — it is not a guard "
-                "right now.",
-                file=sys.stderr,
-            )
-        else:
-            print(f"WARNING: HTTP {exc.code} fetching the contract.", file=sys.stderr)
-        return None
-    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
-        print(f"WARNING: could not fetch or parse the contract: {exc}", file=sys.stderr)
-        return None
 
 
 def compare(schema: dict) -> list[str]:
@@ -117,28 +89,20 @@ def compare(schema: dict) -> list[str]:
 
 def main() -> int:
     """Fetch the published contract and fail on divergence."""
-    schema = fetch_contract()
+    schema = fetch_contract(CONTRACT_URL)
     if schema is None:
         print("Contract check SKIPPED (see warning above).")
         return 0
 
-    problems = compare(schema)
-    if problems:
-        print("SYS-004 CONTRACT DRIFT — this consumer no longer matches the provider:")
-        for problem in problems:
-            print(f"\n{problem}")
-        print(
-            f"\nPublished contract: {CONTRACT_URL}\n"
-            "This is the failure mode SYS-004 exists to make loud. Do not silence "
-            "this check; update the consumer."
-        )
-        return 1
-
-    print(
-        f"Contract OK — consumer matches the published provider contract "
-        f"{list(CLASSIFY_REQUIRED_FIELDS)}."
+    return report(
+        seam="SYS-004 POST /classify",
+        url=CONTRACT_URL,
+        problems=compare(schema),
+        ok_message=(
+            f"Contract OK — consumer matches the published provider contract "
+            f"{list(CLASSIFY_REQUIRED_FIELDS)}."
+        ),
     )
-    return 0
 
 
 if __name__ == "__main__":
