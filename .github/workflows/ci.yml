@@ -55,5 +55,12 @@ jobs:
       - name: Notes read contract matches the provider (SYS-006)
         run: uv run python scripts/check_notes_contract.py
 
+      # The architecture repo has enforced 'Downstream surfaces' on SYS-NNN docs
+      # since 2026-07-18; repo-local ADR tiers had no check at all. That gap is how
+      # a classifier ADR shipped without one and the follow-up sweep missed a file.
+      # All 7 ADRs here already comply, so this is enforced with zero exceptions.
+      - name: ADRs list their downstream surfaces
+        run: uv run python scripts/lint_decisions.py
+
       - name: Test
         run: uv run pytest
