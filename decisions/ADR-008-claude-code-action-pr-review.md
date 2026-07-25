@@ -116,6 +116,14 @@ The prompt targets the four repo-specific invariants above rather than generic c
   the diff first and checks only the invariants that diff could plausibly break, rather than
   walking a seven-item checklist against every PR. Widening permissions to chase an unnamed
   denial would have been guessing with money.
+- **Dependabot PRs are not reviewed, and the run still reports success.** The action refuses
+  bot-authored PRs by default — *"Workflow initiated by non-human actor: dependabot (type: Bot)"*
+  — and `continue-on-error: true` turns that exit-1 step into a green job. Observed on
+  [PR #62](https://github.com/sanlee-ys/kb-agent/pull/62) the same night the lane went live.
+  **Accepted, not fixed:** a bump is a lockfile and version pins, `ci.yml` is the real gate, and
+  reviewing each one costs ~$0.37 for close to no signal. Recorded so the lane's coverage is not
+  read as wider than it is; an `allowed_bots` input exists if that changes. Same conclusion and
+  same reasoning as the classifier's ADR-016.
 - **`@claude` on a commit does nothing, and cannot be made to.** `commit_comment` is not among the
   action's supported events (`issue_comment`, `pull_request_review_comment`, `issues`,
   `pull_request_review`). Wiring it would start a run that then fails building context — worse
