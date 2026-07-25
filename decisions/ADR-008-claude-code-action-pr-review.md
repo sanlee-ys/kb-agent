@@ -91,11 +91,18 @@ The prompt targets the four repo-specific invariants above rather than generic c
   despite the prompt explicitly saying not to — so the instruction was followed in substance
   (files were not opened without cause) and ignored in form.
 
-  Read together, the three runs say the loop length is **not** primarily driven by prompt breadth,
-  and the residual driver is not visible from here. Further tuning would be guessing against
-  denials the action will not name. **Stopping at ~$0.55/review**, which at this repo's PR volume
-  is a few dollars a month — roughly 4× the classifier's $0.14, on a bigger repo with a more
-  demanding prompt.
+  | 4 | same, auto-trigger on a doc-only PR | 8 denials, 14 turns, **$0.367**, posted |
+
+  Run 4 is the **common case** — the automatic `opened` review, not a `@claude` follow-up — and it
+  is materially cheaper than runs 2 and 3. Those were comment-triggered on PRs that modified the
+  workflow itself, where the comment thread adds context and the diff is the reviewer's own
+  configuration. So the working figure is **~$0.37 for a routine review**, with `@claude`
+  re-reviews costing more.
+
+  Read together the four runs say loop length is **not** primarily driven by prompt breadth, and
+  the residual driver is not visible from here — the action reports `permission_denials_count` and
+  never the refused tool names, and denials persisted (8) even on the cheapest run. Further tuning
+  would be guessing against something unnameable, so it stops here.
 
   **A correction, recorded because the wrong version was committed first:** run 1's failure was
   attributed to `--allowedTools` *replacing* the default tool set. The action's docs say the
@@ -114,7 +121,7 @@ The prompt targets the four repo-specific invariants above rather than generic c
   `pull_request_review`). Wiring it would start a run that then fails building context — worse
   than not firing. `pull_request_review_comment` is wired instead, so inline-line comments work;
   top-level PR comments already did. **Comment on a PR, open or merged — never on a commit.**
-- **Revisit when:** per-review cost climbs materially above the measured ~$0.55, the action starts
+- **Revisit when:** per-review cost climbs materially above the measured ~$0.37, the action starts
   reporting *which* tools it denied (which would make the residual loop cost diagnosable rather
   than guessable), or the lane produces noise — in which case narrow the prompt or remove it
   rather than leave it running unread.
