@@ -54,9 +54,22 @@ jobs:
     # Both comment events FAIL OPEN: they run in the base repo's context WITH secrets no
     # matter who commented. On a public repo an unguarded @claude is an open spend vector
     # on the owner's API key. OWNER-only on both, evaluated before a runner is allocated.
+    #
+    # Bot actors are the third case, added 2026-07-25. The action refuses
+    # bot-authored PRs outright ("Workflow initiated by non-human actor:
+    # dependabot (type: Bot)") and exits 1, so before this guard every bump
+    # allocated a runner, authenticated, and failed -- a red X on a PR nobody
+    # meant to review. ADR-008 accepts that bumps go unreviewed; this turns that
+    # acceptance into a clean skip, the way the fork case above turns withheld
+    # secrets into one. `user.type` rather than the dependabot login, to cover
+    # every bot the action refuses for the same reason.
+    #
+    # Only on the pull_request path: an OWNER commenting @claude on a bump is a
+    # human explicitly asking, and that escape hatch keeps working.
     if: >-
       (github.event_name == 'pull_request' &&
-       github.event.pull_request.head.repo.full_name == github.repository) ||
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.event.pull_request.user.type != 'Bot') ||
       (github.event_name == 'issue_comment' &&
        github.event.issue.pull_request != null &&
        github.event.comment.author_association == 'OWNER') ||
@@ -69,14 +82,24 @@ jobs:
     concurrency:
       group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number }}
       cancel-in-progress: true
-    # SYS-021 req. 3: advisory status enforced, not merely intended. Without this an
-    # infrastructure failure here (expired key, action outage, rate limit) reddens a PR
-    # whose real gates are green.
+    # Backstop only -- greens the RUN, not the CHECK. The step-level
+    # continue-on-error below is what actually satisfies SYS-021 req. 3. Kept for
+    # a failure with no step to attach to (runner death, a failing checkout).
+    #
+    # This placement alone was recorded as satisfying req. 3 and did not: measured
+    # on defense-news-classifier PR #123 (run 30141009937) the run concluded
+    # `success` while the check run concluded `failure`, so the red X still
+    # reached the PR. SYS-021 Amendment 1 corrects the requirement.
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
 
+      # THE placement that enforces advisory status. `jobs.<id>.continue-on-error`
+      # keeps a failing job from failing the RUN; `steps[*].continue-on-error`
+      # keeps a failing step from failing the JOB -- and the job's conclusion is
+      # what GitHub publishes as the check run the PR shows.
       - uses: anthropics/claude-code-action@v1
+        continue-on-error: true
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: |

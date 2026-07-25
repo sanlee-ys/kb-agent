@@ -41,7 +41,7 @@ requirements. It comments; it never fails the build and never pushes.**
 |---|---|
 | 1. Grant write tools explicitly | `--allowedTools` names `Read,Grep,Glob` plus the inline-comment MCP tool and `gh pr comment/diff/view`; the prompt states that posting is the deliverable. **The grant must match what the prompt asks for** — see Consequences. |
 | 2. Verify at adoption with a live artifact | **Outstanding** — blocked on the repo secret. See Downstream surfaces. |
-| 3. Enforce advisory status mechanically | `continue-on-error: true` on the job. |
+| 3. Enforce advisory status mechanically | `continue-on-error: true` on the **step**, plus job-level as a backstop. Was job-only until 2026-07-25, which did **not** satisfy this requirement — see the Dependabot correction below and `SYS-021` Amendment 1. |
 | 4. Guard the trigger surface | `pull_request` skips forks (fails closed anyway); `issue_comment` gated on `author_association == 'OWNER'` because that event **fails open with secrets**. |
 
 Also carried over from the first instance: `pull_request: [opened]` only (not `synchronize`),
@@ -116,14 +116,26 @@ The prompt targets the four repo-specific invariants above rather than generic c
   the diff first and checks only the invariants that diff could plausibly break, rather than
   walking a seven-item checklist against every PR. Widening permissions to chase an unnamed
   denial would have been guessing with money.
-- **Dependabot PRs are not reviewed, and the run still reports success.** The action refuses
-  bot-authored PRs by default — *"Workflow initiated by non-human actor: dependabot (type: Bot)"*
-  — and `continue-on-error: true` turns that exit-1 step into a green job. Observed on
-  [PR #62](https://github.com/sanlee-ys/kb-agent/pull/62) the same night the lane went live.
-  **Accepted, not fixed:** a bump is a lockfile and version pins, `ci.yml` is the real gate, and
-  reviewing each one costs ~$0.37 for close to no signal. Recorded so the lane's coverage is not
-  read as wider than it is; an `allowed_bots` input exists if that changes. Same conclusion and
+- **Dependabot PRs are not reviewed. ~~And the run still reports success.~~** The action refuses
+  bot-authored PRs by default — *"Workflow initiated by non-human actor: dependabot (type: Bot)"*.
+  Observed on [PR #62](https://github.com/sanlee-ys/kb-agent/pull/62) the same night the lane went
+  live. **Accepted, not fixed:** a bump is a lockfile and version pins, `ci.yml` is the real gate,
+  and reviewing each one costs ~$0.37 for close to no signal. Recorded so the lane's coverage is
+  not read as wider than it is; an `allowed_bots` input exists if that changes. Same conclusion and
   same reasoning as the classifier's ADR-016.
+
+  **Correction, 2026-07-25.** The struck clause, and "`continue-on-error: true` turns that exit-1
+  step into a green job", were both wrong — and wrong in both repos, since this note was copied
+  from ADR-016. `continue-on-error` sat on the **job**, which greens the *workflow run*. The
+  *check run* — what the PR shows and `gh pr checks` reads — concluded `failure`. Measured on the
+  classifier's PR #123 (run `30141009937`): run `success`, check run `review` **`failure`**. So the
+  bumps were not quietly skipped; each wore a red X, which is the exact signal `continue-on-error`
+  was adopted to suppress.
+
+  **Fixed here:** `continue-on-error` moved to the action step (job-level kept as a backstop), and
+  bot-authored PRs now skip at the `if` so the accepted outcome is a clean skip rather than a
+  failed run. The `@claude` owner path stays ungated — asking for a review on a bump is a human
+  decision and still works. Generalised in `SYS-021` Amendment 1.
 - **`@claude` on a commit does nothing, and cannot be made to.** `commit_comment` is not among the
   action's supported events (`issue_comment`, `pull_request_review_comment`, `issues`,
   `pull_request_review`). Wiring it would start a run that then fails building context — worse
