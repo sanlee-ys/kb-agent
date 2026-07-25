@@ -1,6 +1,6 @@
 # ADR-008: Adopt the advisory agentic PR review lane (SYS-021 instance)
 
-**Status:** Accepted — lane merged 2026-07-24; **unverified pending the `ANTHROPIC_API_KEY` secret** (see Downstream surfaces)
+**Status:** Accepted — **VERIFIED 2026-07-25**: SYS-021 req. 2 met, a live `@claude` run posted a real review on [PR #59](https://github.com/sanlee-ys/kb-agent/pull/59). That run still hit its turn cap (21 turns, $0.59); the prompt was subsequently scoped to the diff to bring the loop down.
 **Date:** 2026-07-24
 **Deciders:** San Lee
 
@@ -76,15 +76,26 @@ The prompt targets the four repo-specific invariants above rather than generic c
   adoption and this repo cannot produce one until the secret is set. Recording that as an explicit
   `Status` caveat rather than quietly merging is the point of the requirement — under SYS-021 a
   green pipeline is not evidence, so "CI passed" would not have made this lane working.
-- **The tool grant and the prompt are one contract.** `--allowedTools` *replaces* the default tool
-  set rather than adding to it. The first live run here granted no file-read tools while the prompt
-  asked the reviewer to check invariants across `agent/tools.py`, `mcp_server/server.py`,
-  `agent/agent.py` and `scripts/ingest.py`: **12 denials, 16 turns, $0.50, turn cap hit, nothing
-  posted.** SYS-021 req. 1 says grant the write tools; this repo's experience extends it — grant
-  every tool the prompt's questions require. A prompt that asks for repo inspection and a grant
-  that permits only diff reading is a lane that reliably burns its budget and produces nothing.
-  Note the cost asymmetry: the classifier's *silent* misconfiguration cost $0.14, this *loud* one
-  cost $0.50. Failing loudly is better, not cheaper.
+- **The prompt's scope, not just the tool grant, drives cost.** Three live runs here:
+
+  | Run | Grant | Result |
+  |---|---|---|
+  | 1 | no `Read`/`Grep`/`Glob` | 12 denials, 16 turns, $0.50, **nothing posted** |
+  | 2 | `+Read,Grep,Glob` | 9 denials, 21 turns, $0.59, **review posted** |
+  | 3 | same, diff-scoped prompt | see `Status` |
+
+  **A correction, recorded because the wrong version was committed first:** run 1's failure was
+  attributed to `--allowedTools` *replacing* the default tool set. The action's docs say the
+  opposite — it **extends** the defaults, "the base GitHub tools are always included." The runs
+  were not a clean A/B (prompt and diff both differed), so what is actually established is that
+  naming the read tools coincided with fewer denials and a successful post, not why. The residual
+  9 denials remain **unidentified**: the action reports `permission_denials_count` and never the
+  refused tool names, so there is no way to close that gap from the logs.
+
+  Given that, the loop length was attacked from the prompt side instead — the reviewer now reads
+  the diff first and checks only the invariants that diff could plausibly break, rather than
+  walking a seven-item checklist against every PR. Widening permissions to chase an unnamed
+  denial would have been guessing with money.
 - **`@claude` on a commit does nothing, and cannot be made to.** `commit_comment` is not among the
   action's supported events (`issue_comment`, `pull_request_review_comment`, `issues`,
   `pull_request_review`). Wiring it would start a run that then fails building context — worse
