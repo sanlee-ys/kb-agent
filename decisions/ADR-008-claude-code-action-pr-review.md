@@ -1,0 +1,89 @@
+# ADR-008: Adopt the advisory agentic PR review lane (SYS-021 instance)
+
+**Status:** Accepted — lane merged 2026-07-24; **unverified pending the `ANTHROPIC_API_KEY` secret** (see Downstream surfaces)
+**Date:** 2026-07-24
+**Deciders:** San Lee
+
+---
+
+## Context
+
+`ci.yml` holds this repo's gates: ruff, pytest (including the real-ChromaDB integration
+round-trip), the two outward contract guards (`check_classify_contract.py` for SYS-004,
+`check_notes_contract.py` for SYS-006), and the ADR lint. All deterministic, all answering
+"did this change break something measurable."
+
+They cannot answer the questions that actually bite this repo, because those are conventions
+rather than assertions:
+
+- A new tool returning a bare dict instead of a `_success`/`_problem` **SYS-003 observation**.
+  The `_obs()` grader in `tests/test_tools.py` catches this for tools it knows about; a new
+  tool wired only into `mcp_server/` would not be covered.
+- `mcp_server/server.py` reimplementing a tool or retyping a description instead of consuming
+  `agent/tools.py`. **Both transports keep working**, which is exactly why the fork is silent.
+- `DEFAULT_MODEL` (`agent/agent.py`) and `MODEL` (`scripts/ingest.py`) drifting apart —
+  `CLAUDE.md` says update both together, and nothing enforces it.
+- `kb/projects/kb-agent.md` going stale after a tool-layer change. It is hand-written, outside
+  `ingest.py`'s pipeline, and `--check` can only report it as `unmanaged`.
+
+Every one is a judgment call, and today the only reviewer making them is the person who wrote
+the change. [SYS-021](https://github.com/sanlee-ys/architecture/blob/main/decisions/SYS-021-agentic-ci-proves-itself-by-artifact.md)
+standardised the agentic-review lane after `defense-news-classifier` proved it out (its
+[ADR-016](https://github.com/sanlee-ys/defense-news-classifier/blob/main/decisions/016-claude-code-action-pr-review.md)),
+including the three ways it can fail silently. This ADR is the second instance.
+
+## Decision
+
+**Adopt `.github/workflows/claude-review.yml` as an advisory lane, conforming to SYS-021's four
+requirements. It comments; it never fails the build and never pushes.**
+
+| SYS-021 requirement | How this lane satisfies it |
+|---|---|
+| 1. Grant write tools explicitly | `--allowedTools` names the inline-comment MCP tool plus `gh pr comment/diff/view`; the prompt states that posting is the deliverable. |
+| 2. Verify at adoption with a live artifact | **Outstanding** — blocked on the repo secret. See Downstream surfaces. |
+| 3. Enforce advisory status mechanically | `continue-on-error: true` on the job. |
+| 4. Guard the trigger surface | `pull_request` skips forks (fails closed anyway); `issue_comment` gated on `author_association == 'OWNER'` because that event **fails open with secrets**. |
+
+Also carried over from the first instance: `pull_request: [opened]` only (not `synchronize`),
+`id-token: write` (the action's OIDC exchange fails without it), model pinned to
+`claude-sonnet-5` per SYS-002, `--max-turns 15`, `contents: read`.
+
+The prompt targets the four repo-specific invariants above rather than generic code review.
+
+## Downstream surfaces
+
+| Surface | State |
+|---|---|
+| `.github/workflows/claude-review.yml` | **New.** The lane. Cannot review its own changes — the action self-skips when the head-ref copy differs from the default branch's — so edits here need human review plus a post-merge `@claude` verification. |
+| **`ANTHROPIC_API_KEY` repo secret** | **MISSING — this is the open blocker.** Unlike `defense-news-classifier`, this repo has no secrets set at all. The lane will skip-or-fail until it exists: `gh secret set ANTHROPIC_API_KEY -R sanlee-ys/kb-agent`. SYS-021 req. 2 is unmet until a live run posts a real comment. |
+| `ci.yml` | Unchanged. Separate workflow, separate concurrency group, no interaction. The gates stay deterministic. |
+| The review prompt inside the workflow | **Maintained surface.** Names `agent/tools.py`, `mcp_server/server.py`, `agent/agent.py`'s `DEFAULT_MODEL`, `scripts/ingest.py`'s `MODEL`, both contract-guard scripts, and `kb/projects/kb-agent.md`. Update it when any of those move. |
+| [SYS-021](https://github.com/sanlee-ys/architecture/blob/main/decisions/SYS-021-agentic-ci-proves-itself-by-artifact.md) | The standard this instantiates. This ADR is its second instance; the first is the classifier's ADR-016. |
+| [ADR-002](ADR-002-agent-tool-seam-threat-model.md) | Requirement 4's `issue_comment` guard is that threat model applied at the CI trigger surface — an untrusted actor reaching a privileged execution context. |
+| [ADR-006](ADR-006-mcp-as-second-transport.md) | The "one home for the tool layer" invariant the prompt asks the reviewer to protect is this ADR's core constraint. |
+
+## Consequences
+
+- **A second reader exists where there was none.** This is a solo repo; the value is not that the
+  model is a better engineer, it is that it is not the person who just wrote the code.
+- **The silent-drift conventions get a reviewer.** The MCP-fork and model-pin-divergence failures
+  both keep every test green by construction, so a convention-aware reader is the only instrument
+  available short of writing new lint.
+- **Cost:** one review per PR opened, Sonnet, turn-capped — measured at ~$0.14 per review on the
+  classifier. It does not scale with pushes.
+- **This ADR ships in a knowingly unverified state.** SYS-021 req. 2 demands a live artifact at
+  adoption and this repo cannot produce one until the secret is set. Recording that as an explicit
+  `Status` caveat rather than quietly merging is the point of the requirement — under SYS-021 a
+  green pipeline is not evidence, so "CI passed" would not have made this lane working.
+- **Revisit when:** the secret lands and a live run is observed (update `Status`), or if the lane
+  produces noise, in which case tighten the prompt or remove it rather than leave it unread.
+
+## Alternatives Considered
+
+| Option | Reason Not Chosen |
+|--------|-------------------|
+| **Wait for the secret before merging the lane** | The workflow is inert without the secret — it cannot spend, comment, or redden a build — so merging it early costs nothing and keeps the SYS-021 rollout in one piece. The unverified state is recorded in `Status` rather than hidden, which is the honest version of shipping it. |
+| **Make it a gate that fails the build** | A non-deterministic reviewer with merge authority turns every model error into a blocked merge. Worse here than on the classifier: SYS-021 explicitly does not authorise promoting an agentic lane to gating, because a silently-muted *gate* is a hole in the build rather than a missing opinion. |
+| **Copy the classifier's workflow verbatim** | The mechanics transfer; the prompt does not. A reviewer told to watch for eval-metric drift would find nothing here and miss the MCP-fork and observation-contract failures that actually threaten this repo. |
+| **Write lint for the conventions instead** | Better where possible, and genuinely worth doing for the model-pin divergence (two constants, mechanically comparable). But "did `mcp_server/` reimplement a tool" and "is this stub now stale" are not mechanically decidable, which is precisely the class this lane covers. Not mutually exclusive — lint should still be written where a rule is checkable. |
+| **`synchronize` as well, so every push is reviewed** | Charges per push and comments on work in flight. `@claude` covers the real need on demand. |

@@ -1,0 +1,120 @@
+name: claude-review
+
+# Agentic PR review via anthropics/claude-code-action. Rationale in
+# decisions/ADR-008-claude-code-action-pr-review.md; the cross-repo standard this
+# instantiates is SYS-021 (an agentic CI job proves itself by its artifact, never by its
+# exit code), and defense-news-classifier/decisions/016 is the first instance.
+#
+# ADVISORY lane, not a gate: it posts review comments and never fails the build. ci.yml
+# holds the gates (ruff, the SYS-004/SYS-006 contract guards, the ADR lint, pytest); a
+# model's opinion is not one, and a red X from a non-deterministic reviewer would train
+# the habit of ignoring red Xs.
+#
+# `opened` only, deliberately NOT `synchronize`: re-reviewing on every push is both a
+# per-push API charge and a stream of near-duplicate comments on unfinished work.
+# Re-review on demand with @claude, via the issue_comment trigger below.
+#
+# Deliberately does NOT use pull_request_target -- that trigger runs untrusted fork code
+# in the base repo's context WITH secrets.
+on:
+  pull_request:
+    types: [opened]
+  issue_comment:
+    types: [created]
+
+# id-token: write is required, not optional (SYS-021 req. 1's sibling finding): the action
+# exchanges a GitHub OIDC token for its App token and fails at setupGitHubToken without it,
+# before ever reaching the model. It mints an identity token for this repo; it is not write
+# access to contents, which stays read -- this lane comments, it never pushes.
+permissions:
+  contents: read
+  pull-requests: write
+  issues: read
+  id-token: write
+
+jobs:
+  review:
+    # SYS-021 req. 4 -- the trigger surface, whose platform defaults are asymmetric.
+    #
+    # pull_request from a fork FAILS CLOSED: GitHub withholds secrets, so the run would
+    # die on auth rather than on the code. Skipping keeps a contributor's first PR from
+    # greeting them with a red X they cannot fix and did not cause.
+    #
+    # issue_comment FAILS OPEN: it runs in the base repo's context WITH secrets no matter
+    # who commented. On a public repo an unguarded @claude is an open spend vector on the
+    # owner's API key. OWNER-only, evaluated before a runner is allocated.
+    if: >-
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request != null &&
+       github.event.comment.author_association == 'OWNER')
+    runs-on: ubuntu-latest
+    # Keyed on PR number, NOT github.ref: on issue_comment events github.ref is the default
+    # branch, so a ref-keyed group would collapse every @claude across every PR into one
+    # group and let them cancel each other.
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number }}
+      cancel-in-progress: true
+    # SYS-021 req. 3: advisory status enforced, not merely intended. Without this an
+    # infrastructure failure here (expired key, action outage, rate limit) reddens a PR
+    # whose real gates are green.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Review this pull request for correctness, security, and adherence to the
+            conventions in CLAUDE.md.
+
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+
+            This repo is a RAG + tool-use agent over a local knowledge base. Weight the
+            review toward the invariants that are easy to break quietly:
+
+              - SYS-003 observation contract. Every tool result in agent/tools.py must be
+                built via _success/_problem and carry status + payload/source or
+                next_actions. A new tool that returns a bare string or dict breaks the
+                contract the agent's prompt branches on.
+              - The tool layer has ONE home. agent/tools.py owns the tool functions and
+                their descriptions; mcp_server/server.py must consume them, never
+                reimplement a tool or retype a description. A fork there drifts silently
+                because both transports still work.
+              - Model pins (SYS-002: exact IDs, no date suffixes). DEFAULT_MODEL in
+                agent/agent.py and MODEL in scripts/ingest.py are separate constants that
+                must move together -- flag a PR that changes one and not the other.
+              - The cross-repo contract guards (scripts/check_classify_contract.py for
+                SYS-004, scripts/check_notes_contract.py for SYS-006) are the only checks
+                here that look outward. Flag changes that weaken or skip them.
+              - kb/projects/kb-agent.md is hand-written and sits outside ingest.py's
+                pipeline, so nothing regenerates it. If this PR materially changes
+                mcp_server/server.py or the tool layer, that stub likely needs a manual
+                update or it drifts from the code it describes.
+              - chroma_db/ is generated and git-ignored -- it must never appear in a diff.
+              - New ADRs must have a "## Downstream surfaces" section (enforced by
+                scripts/lint_decisions.py with zero exceptions).
+
+            Be specific and actionable. If the change is clean, say so briefly rather
+            than manufacturing findings -- a review that always finds something trains
+            the reader to skip it.
+
+            Post the review with `gh pr comment` for top-level findings, and
+            mcp__github_inline_comment__create_inline_comment (with confirmed: true)
+            for anything tied to a specific line. Reviewing without posting is a
+            no-op -- the comment IS the deliverable.
+          # --model pinned per SYS-002. --max-turns bounds the agentic loop.
+          #
+          # --allowedTools is SYS-021 req. 1 and its absence fails SILENTLY: on the
+          # classifier, the run without it went green in 36s, spent $0.14 over 7 turns,
+          # and posted nothing -- every attempt to comment became a tool denial, which is
+          # not a job failure. Do not remove these without expecting a mute reviewer.
+          claude_args: |
+            --model claude-sonnet-5
+            --max-turns 15
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
+          use_sticky_comment: true
+          classify_inline_comments: true
