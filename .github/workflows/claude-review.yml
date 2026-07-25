@@ -86,8 +86,14 @@ jobs:
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
 
-            This repo is a RAG + tool-use agent over a local knowledge base. Weight the
-            review toward the invariants that are easy to break quietly:
+            Start by reading the diff (`gh pr diff`). Work out which files it actually
+            touches, then check ONLY the invariants below that this diff could plausibly
+            break -- open a file when the diff gives you a reason to, not to complete a
+            checklist. A doc-only change needs almost none of them. Say briefly which ones
+            you judged relevant and move on; do not narrate the ones you skipped.
+
+            This repo is a RAG + tool-use agent over a local knowledge base. The invariants
+            that break quietly:
 
               - SYS-003 observation contract. Every tool result in agent/tools.py must be
                 built via _success/_problem and carry status + payload/source or
@@ -121,21 +127,20 @@ jobs:
             no-op -- the comment IS the deliverable.
           # --model pinned per SYS-002. --max-turns bounds the agentic loop.
           #
-          # --allowedTools is SYS-021 req. 1, and it REPLACES the default tool set rather
-          # than adding to it. Two lessons, both paid for:
+          # --allowedTools is SYS-021 req. 1. Per the action's docs it EXTENDS the default
+          # tool set rather than replacing it ("the base GitHub tools are always included").
           #
-          #   Omitting it entirely is silent: on the classifier that produced a green 36s
-          #   run that spent $0.14 over 7 turns and posted nothing, because every attempt
-          #   to comment became a tool denial and denials are not job failures.
+          # Measured here, without a clean A/B -- both runs also differed in prompt and
+          # diff, so read this as evidence, not mechanism:
+          #   without Read/Grep/Glob: 12 denials, 16 turns, $0.50, nothing posted
+          #   with them:               9 denials, 21 turns, $0.59, review posted
           #
-          #   Granting a set NARROWER than the prompt requires is loud but expensive: the
-          #   first live run here asked the reviewer to check invariants across
-          #   agent/tools.py, mcp_server/server.py and others while granting no file-read
-          #   tools at all. 12 denials, 16 turns, $0.50, max-turns cap hit, nothing posted.
-          #
-          # So Read/Grep/Glob are here because THIS prompt asks for repo inspection, not
-          # just diff review. If the prompt grows a new capability, grant its tool too --
-          # the grant and the prompt are one contract.
+          # Naming them explicitly is cheap and demonstrably did not hurt, so they stay.
+          # The residual denials are NOT identified -- the action reports only a count,
+          # never the refused tool names -- so the loop length was attacked from the prompt
+          # side (scope the checks to the diff) rather than by widening permissions
+          # blindly. Omitting the comment tools entirely remains the silent killer: on the
+          # classifier that was a green 36s run that spent $0.14 and posted nothing.
           claude_args: |
             --model claude-sonnet-5
             --max-turns 20
