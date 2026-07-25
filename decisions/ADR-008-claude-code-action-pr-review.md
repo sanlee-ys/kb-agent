@@ -40,7 +40,7 @@ requirements. It comments; it never fails the build and never pushes.**
 | SYS-021 requirement | How this lane satisfies it |
 |---|---|
 | 1. Grant write tools explicitly | `--allowedTools` names `Read,Grep,Glob` plus the inline-comment MCP tool and `gh pr comment/diff/view`; the prompt states that posting is the deliverable. **The grant must match what the prompt asks for** — see Consequences. |
-| 2. Verify at adoption with a live artifact | **Outstanding** — blocked on the repo secret. See Downstream surfaces. |
+| 2. Verify at adoption with a live artifact | **Met 2026-07-25** — a live `@claude` run posted a real review on [PR #59](https://github.com/sanlee-ys/kb-agent/pull/59). See the Status header and the four measured runs in Consequences. |
 | 3. Enforce advisory status mechanically | `continue-on-error: true` on the **step**, plus job-level as a backstop. Was job-only until 2026-07-25, which did **not** satisfy this requirement — see the Dependabot correction below and `SYS-021` Amendment 1. |
 | 4. Guard the trigger surface | `pull_request` skips forks (fails closed anyway); `issue_comment` gated on `author_association == 'OWNER'` because that event **fails open with secrets**. |
 
