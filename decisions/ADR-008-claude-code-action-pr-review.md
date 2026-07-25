@@ -39,7 +39,7 @@ requirements. It comments; it never fails the build and never pushes.**
 
 | SYS-021 requirement | How this lane satisfies it |
 |---|---|
-| 1. Grant write tools explicitly | `--allowedTools` names the inline-comment MCP tool plus `gh pr comment/diff/view`; the prompt states that posting is the deliverable. |
+| 1. Grant write tools explicitly | `--allowedTools` names `Read,Grep,Glob` plus the inline-comment MCP tool and `gh pr comment/diff/view`; the prompt states that posting is the deliverable. **The grant must match what the prompt asks for** — see Consequences. |
 | 2. Verify at adoption with a live artifact | **Outstanding** — blocked on the repo secret. See Downstream surfaces. |
 | 3. Enforce advisory status mechanically | `continue-on-error: true` on the job. |
 | 4. Guard the trigger surface | `pull_request` skips forks (fails closed anyway); `issue_comment` gated on `author_association == 'OWNER'` because that event **fails open with secrets**. |
@@ -55,7 +55,8 @@ The prompt targets the four repo-specific invariants above rather than generic c
 | Surface | State |
 |---|---|
 | `.github/workflows/claude-review.yml` | **New.** The lane. Cannot review its own changes — the action self-skips when the head-ref copy differs from the default branch's — so edits here need human review plus a post-merge `@claude` verification. |
-| **`ANTHROPIC_API_KEY` repo secret** | **MISSING — this is the open blocker.** Unlike `defense-news-classifier`, this repo has no secrets set at all. The lane will skip-or-fail until it exists: `gh secret set ANTHROPIC_API_KEY -R sanlee-ys/kb-agent`. SYS-021 req. 2 is unmet until a live run posts a real comment. |
+| **`ANTHROPIC_API_KEY` repo secret** | **Set 2026-07-25.** No longer the blocker. |
+| [`defense-news-classifier`'s claude-review lane](https://github.com/sanlee-ys/defense-news-classifier/blob/main/.github/workflows/claude-review.yml) | **Has the same narrow tool grant** (no `Read`/`Grep`/`Glob`) while its prompt also references source files. It has only been exercised on small diff-only PRs, so it has not hit the wall yet. Should get the same widening — tracked as a fast-follow, not fixed here, because it is a different repo's PR. |
 | `ci.yml` | Unchanged. Separate workflow, separate concurrency group, no interaction. The gates stay deterministic. |
 | The review prompt inside the workflow | **Maintained surface.** Names `agent/tools.py`, `mcp_server/server.py`, `agent/agent.py`'s `DEFAULT_MODEL`, `scripts/ingest.py`'s `MODEL`, both contract-guard scripts, and `kb/projects/kb-agent.md`. Update it when any of those move. |
 | [SYS-021](https://github.com/sanlee-ys/architecture/blob/main/decisions/SYS-021-agentic-ci-proves-itself-by-artifact.md) | The standard this instantiates. This ADR is its second instance; the first is the classifier's ADR-016. |
@@ -75,6 +76,20 @@ The prompt targets the four repo-specific invariants above rather than generic c
   adoption and this repo cannot produce one until the secret is set. Recording that as an explicit
   `Status` caveat rather than quietly merging is the point of the requirement — under SYS-021 a
   green pipeline is not evidence, so "CI passed" would not have made this lane working.
+- **The tool grant and the prompt are one contract.** `--allowedTools` *replaces* the default tool
+  set rather than adding to it. The first live run here granted no file-read tools while the prompt
+  asked the reviewer to check invariants across `agent/tools.py`, `mcp_server/server.py`,
+  `agent/agent.py` and `scripts/ingest.py`: **12 denials, 16 turns, $0.50, turn cap hit, nothing
+  posted.** SYS-021 req. 1 says grant the write tools; this repo's experience extends it — grant
+  every tool the prompt's questions require. A prompt that asks for repo inspection and a grant
+  that permits only diff reading is a lane that reliably burns its budget and produces nothing.
+  Note the cost asymmetry: the classifier's *silent* misconfiguration cost $0.14, this *loud* one
+  cost $0.50. Failing loudly is better, not cheaper.
+- **`@claude` on a commit does nothing, and cannot be made to.** `commit_comment` is not among the
+  action's supported events (`issue_comment`, `pull_request_review_comment`, `issues`,
+  `pull_request_review`). Wiring it would start a run that then fails building context — worse
+  than not firing. `pull_request_review_comment` is wired instead, so inline-line comments work;
+  top-level PR comments already did. **Comment on a PR, open or merged — never on a commit.**
 - **Revisit when:** the secret lands and a live run is observed (update `Status`), or if the lane
   produces noise, in which case tighten the prompt or remove it rather than leave it unread.
 
