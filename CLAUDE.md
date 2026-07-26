@@ -29,6 +29,17 @@ uv run python mcp_server/server.py        # speaks JSON-RPC on stdin/stdout — 
 claude mcp list                           # check it's registered and Connected
 ```
 
+**Parallel sessions here use a warm worktree pool** (`treehouse`, `treehouse.toml`,
+[ADR-009](decisions/ADR-009-treehouse-warm-worktree-pool.md)) rather than the house
+default `claude --worktree`, because this repo's `.venv` is ~458 MB and `chroma_db/` is
+git-ignored, so a cold checkout has to re-embed the whole KB. **This repo only** — every
+other repo still uses `claude --worktree`. Three things to know: worktrees arrive with a
+**detached `HEAD`**, so branch before committing or the work reads as *clean* and the next
+acquisition resets over it; `treehouse return` **hard-kills** every process rooted in the
+worktree (on Windows with no grace period), so never return one with an indexing run in
+flight; and a warm cache is deliberate stale state, so **re-run a surprising result in a
+cold checkout** before believing it.
+
 Tests live in `tests/`. Most run offline — no API key, no network — and
 `tests/test_tools.py` includes `_obs()`, a grader that asserts every tool result conforms
 to the SYS-003 observation shape. The exception is `test_kb_roundtrip.py`, marked

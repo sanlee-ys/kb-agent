@@ -1,0 +1,10 @@
+# Warm worktree pool for this repo only — see decisions/ADR-009.
+#
+# max_trees is deliberately 4, not the tool's default of 16. This repo's .venv
+# is ~458 MB (sentence-transformers), so a full default pool would reserve
+# ~7.3 GB for one repo. Four covers realistic parallel-session load here.
+max_trees = 4
+
+# Worktree root directory (relative to repo root or absolute path).
+# Worktrees are placed under {root}/.treehouse/. Default: $HOME
+root = ""
