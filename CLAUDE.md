@@ -2,21 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## What this is
-
-kb-agent is a personal, local knowledge base over a developer's projects and their
-dependencies, fronted by a RAG + tool-use agent. You point it at project directories
-(`projects.yaml`), it auto-generates Markdown stubs, embeds them into a local vector
-store, and an agent answers questions grounded in that KB.
-
 ## Commands
 
 Environment uses [uv](https://docs.astral.sh/uv/); Python 3.11+ required.
 
 ```bash
-uv sync                                   # install deps incl. the dev group (ruff, pytest)
-cp -n .env.example .env                   # then set ANTHROPIC_API_KEY
-
 # Pipeline (run in order):
 uv run python scripts/ingest.py           # generate kb/*.md stubs from projects.yaml
 uv run python scripts/ingest.py NAME      # ingest a single project by name
@@ -34,24 +24,18 @@ uv run python scripts/eval_retrieval.py --kind-filter  # same, passing each quer
 uv run python app.py                      # Gradio chat UI at http://127.0.0.1:7860
 uv run python agent/agent.py              # CLI chat loop
 
-uv run python agent/tools.py              # manual smoke test of the tools
-uv run pytest                             # run the test suite (no API key needed)
-uv run ruff check .                       # lint
-
 # MCP server (stdio; exposes search_kb + list_projects to any MCP host):
 uv run python mcp_server/server.py        # speaks JSON-RPC on stdin/stdout — nothing to see
 claude mcp list                           # check it's registered and Connected
 ```
 
-Tests live in `tests/` (`test_tools.py`, `test_index.py`, `test_ingest.py`,
-`test_kb_roundtrip.py`, `test_mcp_server.py`, `test_eval_retrieval.py`). Most run offline — no API key, no network — and
+Tests live in `tests/`. Most run offline — no API key, no network — and
 `tests/test_tools.py` includes `_obs()`, a grader that asserts every tool result conforms
 to the SYS-003 observation shape. The exception is `test_kb_roundtrip.py`, marked
 `@pytest.mark.integration`: it builds a **real ChromaDB** in a temp dir and runs the
 index→`search_kb` round-trip, so it loads the local `all-MiniLM-L6-v2` embedding model
 (downloaded once, ~80MB, the first time on any machine). It runs by default; skip it for
-the fast loop with `uv run pytest -m "not integration"`. CI (`.github/workflows/ci.yml`)
-runs ruff + the test suite (including the integration test) on push and PR. The `__main__`
+the fast loop with `uv run pytest -m "not integration"`. The `__main__`
 blocks (`agent/tools.py`, `agent/agent.py`) also double as smoke tests.
 
 `tests/test_mcp_server.py` drives the MCP server through a real in-memory client session
