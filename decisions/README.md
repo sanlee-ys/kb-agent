@@ -14,6 +14,7 @@ cross-repo decisions get a `SYS-NNN` in the architecture repo, repo-local ones l
 | [ADR-006](ADR-006-mcp-as-second-transport.md) | Serve MCP as a second transport over the same tools, not a second implementation | Accepted |
 | [ADR-007](ADR-007-incremental-index-and-stub-protection.md) | Never overwrite a stub without `--force`; update the index incrementally by default | Accepted |
 | [ADR-008](ADR-008-claude-code-action-pr-review.md) | Adopt the advisory agentic PR review lane (SYS-021 instance) — **on-demand via `@claude` only** since 2026-07-26 | Accepted |
+| [ADR-009](ADR-009-treehouse-warm-worktree-pool.md) | A warm worktree pool (`treehouse`, `max_trees = 4`) for **this repo only** — the ~458 MB venv and the re-embed make cold checkouts expensive here and nowhere else | Accepted |
 
 ## Why this tier was missing, and what it is not
 
