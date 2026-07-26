@@ -50,6 +50,20 @@ and terminates processes; it was instead built with
 which is simultaneously tag `v2.1.0` and `main`, and is the exact tree that was
 read before adoption.
 
+## Downstream surfaces
+
+| Surface | State |
+|---|---|
+| `treehouse.toml` | **New.** The scoping mechanism itself — its presence in this repo and nowhere else *is* the decision. `max_trees = 4` is deliberate; the comment in the file says why so it survives a casual edit. |
+| `decisions/README.md` | **Row added.** |
+| `CLAUDE.md` (this repo) | **Line added** under Commands. A session working here needs to know a pool exists, that trees arrive detached, and that `return` hard-kills on Windows. |
+| **Global `CLAUDE.md`** | **Deliberately unchanged**, and this is the surface a reader would most expect to move. `claude --worktree` remains the house default for every other repo. If that ever changes, this ADR is what has to be revisited first. |
+| `~/go/bin/treehouse.exe` | **Un-versioned machine state**, present only on the Windows PC and pinned to commit `c0b7f68`. It is not provisioned by `dotfiles`, so a second machine gets no pool until the same `go install` is run there. The durable fix is versioning the install, not documenting it here. |
+| `.gitignore` | **Unchanged, deliberately.** Worktrees live under `$HOME/.treehouse/`, not in the repo, so the pool leaves nothing to ignore. |
+| `chroma_db/` | **Unchanged and still git-ignored.** It is the *reason* for this ADR, not a thing this ADR alters — the pool preserves it between sessions rather than committing it. |
+| [ADR-007](ADR-007-incremental-index-and-stub-protection.md) | Its incremental-index behaviour is what makes a warm pool worth having: a preserved `chroma_db/` plus incremental indexing means a reused worktree re-embeds only what changed. |
+| `career/ideas.md` | Updated the same day with the audit, the install method, and the `treehouse update` warning. Private repo; the operative record is this ADR. |
+
 ## Consequences
 
 **What this costs, accepted knowingly:**
