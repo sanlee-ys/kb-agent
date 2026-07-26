@@ -1,6 +1,6 @@
 # ADR-008: Adopt the advisory agentic PR review lane (SYS-021 instance)
 
-**Status:** Accepted — **VERIFIED 2026-07-25**: SYS-021 req. 2 met, a live `@claude` run posted a real review on [PR #59](https://github.com/sanlee-ys/kb-agent/pull/59). That run still hit its turn cap (21 turns, $0.59); the prompt was subsequently scoped to the diff to bring the loop down.
+**Status:** Accepted — **VERIFIED 2026-07-25**: SYS-021 req. 2 met, a live `@claude` run posted a real review on [PR #59](https://github.com/sanlee-ys/kb-agent/pull/59). That run still hit its turn cap (21 turns, $0.59); the prompt was subsequently scoped to the diff to bring the loop down. **Amended once** — the automatic `pull_request: [opened]` pass dropped, leaving the lane on-demand via `@claude` only (2026-07-26, *Amendment 1*).
 **Date:** 2026-07-24
 **Deciders:** San Lee
 
@@ -42,11 +42,12 @@ requirements. It comments; it never fails the build and never pushes.**
 | 1. Grant write tools explicitly | `--allowedTools` names `Read,Grep,Glob` plus the inline-comment MCP tool and `gh pr comment/diff/view`; the prompt states that posting is the deliverable. **The grant must match what the prompt asks for** — see Consequences. |
 | 2. Verify at adoption with a live artifact | **Met 2026-07-25** — a live `@claude` run posted a real review on [PR #59](https://github.com/sanlee-ys/kb-agent/pull/59). See the Status header and the four measured runs in Consequences. |
 | 3. Enforce advisory status mechanically | `continue-on-error: true` on the **step**, plus job-level as a backstop. Was job-only until 2026-07-25, which did **not** satisfy this requirement — see the Dependabot correction below and `SYS-021` Amendment 1. |
-| 4. Guard the trigger surface | `pull_request` skips forks (fails closed anyway); `issue_comment` gated on `author_association == 'OWNER'` because that event **fails open with secrets**. |
+| 4. Guard the trigger surface | Both comment events gated on `author_association == 'OWNER'`, because they **fail open with secrets**. *(Amended 2026-07-26: the fail-closed `pull_request` event, and the fork skip that guarded it, are gone with the automatic pass — the surface is smaller and the OWNER gate is now the only thing on it. See Amendment 1.)* |
 
-Also carried over from the first instance: `pull_request: [opened]` only (not `synchronize`),
-`id-token: write` (the action's OIDC exchange fails without it), model pinned to
-`claude-sonnet-5` per SYS-002, `--max-turns 15`, `contents: read`.
+Also carried over from the first instance: ~~`pull_request: [opened]` only (not
+`synchronize`)~~ *(dropped 2026-07-26 — on-demand only; see Amendment 1)*, `id-token: write`
+(the action's OIDC exchange fails without it), model pinned to `claude-sonnet-5` per SYS-002,
+`--max-turns 15`, `contents: read`.
 
 The prompt targets the four repo-specific invariants above rather than generic code review.
 
@@ -155,3 +156,61 @@ The prompt targets the four repo-specific invariants above rather than generic c
 | **Copy the classifier's workflow verbatim** | The mechanics transfer; the prompt does not. A reviewer told to watch for eval-metric drift would find nothing here and miss the MCP-fork and observation-contract failures that actually threaten this repo. |
 | **Write lint for the conventions instead** | Better where possible, and genuinely worth doing for the model-pin divergence (two constants, mechanically comparable). But "did `mcp_server/` reimplement a tool" and "is this stub now stale" are not mechanically decidable, which is precisely the class this lane covers. Not mutually exclusive — lint should still be written where a rule is checkable. |
 | **`synchronize` as well, so every push is reviewed** | Charges per push and comments on work in flight. `@claude` covers the real need on demand. |
+
+---
+
+## Amendment 1 — 2026-07-26: on-demand only, matching the first instance
+
+The automatic `pull_request: [opened]` trigger is removed across all three lanes that run
+this pattern (this one, `defense-news-classifier`'s ADR-016, `portfolio`'s ADR-005). The lane
+now fires only when the owner comments `@claude` on a PR. Driver: recurring API spend on a
+lane whose per-run cost rose as it was fixed. The reasoning is written up once, in
+[ADR-016 Amendment 1](https://github.com/sanlee-ys/defense-news-classifier/blob/main/decisions/016-claude-code-action-pr-review.md);
+this records what it means **here**.
+
+**SYS-021 conformance is unchanged, and req. 4 is worth re-reading rather than re-ticking.**
+That requirement exists because GitHub's trigger defaults are *asymmetric*: `pull_request`
+from a fork fails closed (secrets withheld), comment events fail open (secrets present
+regardless of who commented). This lane now has **only the fail-open half**. The surface is
+smaller, but the `author_association == 'OWNER'` guard went from one of three checks to the
+single control preventing a stranger from spending this repo's key by typing `@claude`. Req. 4
+is satisfied; it is also now the only thing standing.
+
+Requirements 1 (explicit tool grant), 2 (verified by artifact — PR #59 still stands, and it
+was an `@claude` run, so the verification exercised *exactly* the path that is now the only
+path), and 3 (advisory enforced at the step) are untouched.
+
+**What was removed, and why it is recorded rather than deleted.** Two guards became
+unreachable with the trigger: the same-repo fork check and `user.type != 'Bot'`. Both stay as
+comments in the workflow, because in a year's diff "we deleted a security guard" and "the
+event it guarded no longer exists" are indistinguishable. Dependabot bumps still go
+unreviewed — already accepted in this ADR — now because nothing fires rather than because a
+guard skips.
+
+**The narrowing this introduces.** A comment-triggered run checks out the **default branch**,
+not a PR merge ref, so `Read`/`Grep`/`Glob` see `main`. The prompt already leads with
+`gh pr diff`, which stays authoritative for what changed, and this repo's invariants are
+mostly *structural* — does a new tool go through `_success`/`_problem`, did `mcp_server/`
+retype a description, did the two model pins move together — which are answerable from the
+diff plus `main`'s surrounding code. Reading a changed file, though, now shows its pre-PR
+content. `refs/pull/N/merge` would restore the old tree and is the documented follow-up; not
+taken here because that ref can be absent on closed or long-merged PRs, and a loud checkout
+failure is a worse trade than a documented narrowing.
+
+**The cost of losing the automatic pass, stated plainly.** The unprompted review is the one
+that catches what you did not think to ask about. On-demand review requires remembering, and
+the PRs you forget are correlated with the ones you would not have scrutinised anyway. This is
+accepted, not solved. `ci.yml` is unaffected and remains the enforcing layer.
+
+**Downstream surfaces for this amendment:**
+- `.github/workflows/claude-review.yml` — `on:` loses `pull_request`; the job `if:` keeps only
+  the two OWNER-gated comment clauses, with the removed guards recorded in place. The prompt,
+  `--allowedTools`, `--max-turns`, model pin, `use_sticky_comment` and concurrency key are
+  **unchanged**.
+- The SYS-021 table's req. 4 row and the carried-over-defaults paragraph above — annotated.
+- `decisions/README.md` — the ADR-008 row notes the lane is on-demand.
+- `CLAUDE.md` — **unchanged, and verified so.** It documents the repo's pipeline and
+  conventions and never described the review trigger.
+- **Verification is unchanged:** the action self-skips when the workflow differs from the
+  default branch, so this is verified by merging and then commenting `@claude` on a later PR,
+  judged by a posted review comment rather than a green check.

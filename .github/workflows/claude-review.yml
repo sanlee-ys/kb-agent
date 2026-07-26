@@ -10,15 +10,20 @@ name: claude-review
 # model's opinion is not one, and a red X from a non-deterministic reviewer would train
 # the habit of ignoring red Xs.
 #
-# `opened` only, deliberately NOT `synchronize`: re-reviewing on every push is both a
-# per-push API charge and a stream of near-duplicate comments on unfinished work.
-# Re-review on demand with @claude, via the issue_comment trigger below.
+# ON DEMAND ONLY, as of 2026-07-26 (ADR-008 Amendment 1). No automatic trigger: this
+# lane fires when the owner comments @claude on a PR, and at no other time. It costs
+# nothing when idle.
+#
+# The progression, since the reasoning moved twice on measurement: `synchronize` was
+# rejected up front (a charge per push, near-duplicate comments on unfinished work);
+# `pull_request: [opened]` was the compromise that replaced it, one automatic pass per
+# PR; that is what has now been dropped. It was not wrong -- it stopped being worth its
+# recurring price once the lane worked well enough to actually run on every PR.
 #
 # Deliberately does NOT use pull_request_target -- that trigger runs untrusted fork code
-# in the base repo's context WITH secrets.
+# in the base repo's context WITH secrets. Moot for comment events, retained as a
+# standing prohibition against reintroducing it with any future PR-triggered lane.
 on:
-  pull_request:
-    types: [opened]
   issue_comment:
     types: [created]
   # Inline review comments on a PR. issue_comment covers only the top-level conversation
@@ -47,29 +52,23 @@ jobs:
   review:
     # SYS-021 req. 4 -- the trigger surface, whose platform defaults are asymmetric.
     #
-    # pull_request from a fork FAILS CLOSED: GitHub withholds secrets, so the run would
-    # die on auth rather than on the code. Skipping keeps a contributor's first PR from
-    # greeting them with a red X they cannot fix and did not cause.
+    # Both remaining events FAIL OPEN: they run in the base repo's context WITH secrets
+    # no matter who commented. On a public repo an unguarded @claude is an open spend
+    # vector on the owner's API key. OWNER-only on both, evaluated before a runner is
+    # allocated. That guard is now the ONLY thing standing between a stranger's comment
+    # and this repo's key, so it is load-bearing rather than defence in depth.
     #
-    # Both comment events FAIL OPEN: they run in the base repo's context WITH secrets no
-    # matter who commented. On a public repo an unguarded @claude is an open spend vector
-    # on the owner's API key. OWNER-only on both, evaluated before a runner is allocated.
-    #
-    # Bot actors are the third case, added 2026-07-25. The action refuses
-    # bot-authored PRs outright ("Workflow initiated by non-human actor:
-    # dependabot (type: Bot)") and exits 1, so before this guard every bump
-    # allocated a runner, authenticated, and failed -- a red X on a PR nobody
-    # meant to review. ADR-008 accepts that bumps go unreviewed; this turns that
-    # acceptance into a clean skip, the way the fork case above turns withheld
-    # secrets into one. `user.type` rather than the dependabot login, to cover
-    # every bot the action refuses for the same reason.
-    #
-    # Only on the pull_request path: an OWNER commenting @claude on a bump is a
-    # human explicitly asking, and that escape hatch keeps working.
+    # The fail-CLOSED event is gone entirely as of 2026-07-26. Two guards went with the
+    # pull_request trigger, and what they protected is recorded so neither is re-added
+    # by reflex if an automatic pass ever returns:
+    #   - the same-repo fork check (GitHub withholds secrets from fork runs, so the job
+    #     would die on auth and greet a contributor with an unfixable red X), and
+    #   - `user.type != 'Bot'` (the action refuses bot-authored PRs and exits 1, so
+    #     every Dependabot bump used to allocate a runner, authenticate, and fail).
+    # Both are unreachable now, not unnecessary. Bumps still go unreviewed, as ADR-008
+    # already accepted -- now because nothing fires. An OWNER commenting @claude on a
+    # bump still works, which was always the escape hatch.
     if: >-
-      (github.event_name == 'pull_request' &&
-       github.event.pull_request.head.repo.full_name == github.repository &&
-       github.event.pull_request.user.type != 'Bot') ||
       (github.event_name == 'issue_comment' &&
        github.event.issue.pull_request != null &&
        github.event.comment.author_association == 'OWNER') ||
