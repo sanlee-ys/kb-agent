@@ -19,6 +19,9 @@ uv run python scripts/index.py --rebuild  # drop and re-embed the index from scr
 # Retrieval eval (offline, no API key; needs an indexed KB):
 uv run python scripts/eval_retrieval.py                # recall@1/@3/@5 + MRR vs eval/gold_set.yaml
 uv run python scripts/eval_retrieval.py --kind-filter  # same, passing each query's kind to search_kb
+uv run python scripts/eval_retrieval.py --json eval/baseline.json   # save a run for comparison
+uv run python scripts/eval_compare.py --baseline eval/baseline.json --candidate eval/candidate.json
+                                          # paired A/B of two saved runs + harness-health report
 
 # Run the agent:
 uv run python app.py                      # Gradio chat UI at http://127.0.0.1:7860
