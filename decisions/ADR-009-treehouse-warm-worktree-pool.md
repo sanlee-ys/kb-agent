@@ -59,6 +59,7 @@ read before adoption.
 | `CLAUDE.md` (this repo) | **Line added** under Commands. A session working here needs to know a pool exists, that trees arrive detached, and that `return` hard-kills on Windows. |
 | **Global `CLAUDE.md`** | **Deliberately unchanged**, and this is the surface a reader would most expect to move. `claude --worktree` remains the house default for every other repo. If that ever changes, this ADR is what has to be revisited first. |
 | `~/go/bin/treehouse.exe` | **Un-versioned machine state**, present only on the Windows PC and pinned to commit `c0b7f68`. It is not provisioned by `dotfiles`, so a second machine gets no pool until the same `go install` is run there. The durable fix is versioning the install, not documenting it here. |
+| `~/.config/treehouse/config.toml` | **Deliberately not created.** It is the only file that can carry a `post_create` hook — `config.Load` zeroes hooks read from repo-level `treehouse.toml` — so it is the one place the cold-first-lease cost could be fixed. Rejected on the measurements in Consequences. If it is ever added, it belongs in `dotfiles` next to the pinned `go install`, not hand-written on one machine. |
 | `.gitignore` | **Unchanged, deliberately.** Worktrees live under `$HOME/.treehouse/`, not in the repo, so the pool leaves nothing to ignore. |
 | `chroma_db/` | **Unchanged and still git-ignored.** It is the *reason* for this ADR, not a thing this ADR alters — the pool preserves it between sessions rather than committing it. |
 | [ADR-007](ADR-007-incremental-index-and-stub-protection.md) | Its incremental-index behaviour is what makes a warm pool worth having: a preserved `chroma_db/` plus incremental indexing means a reused worktree re-embeds only what changed. |
@@ -99,6 +100,36 @@ read before adoption.
   hooks in repo-level `treehouse.toml`** — they are honoured only from the
   user-level `~/.config/treehouse/config.toml`, so this cannot be fixed by a
   committed file.
+
+  **A `post_create` hook was investigated on 2026-08-01 and rejected.** It would
+  work — `acquire` sets `runPostCreate` on both the create and the reuse path,
+  and `hooks.Run` only logs failures — but it buys back far less than this ADR
+  assumed. Measured here: a cold `uv sync` is **7.5 s**, because uv hardlinks the
+  458 MB out of its global cache instead of re-downloading it (the disk figure
+  was never a time figure), and a cold re-embed is **24.8 s** — about **32 s**,
+  up to four times, once per pool, ever. Against that, the hook runs
+  synchronously inside `acquire` on *every* acquisition, and on an already-warm
+  tree a satisfied `uv sync` plus a no-op incremental index still costs
+  **6.3 s**, nearly all of it loading the embedding model just to open the
+  collection. It breaks even somewhere around twenty acquisitions and is
+  net-negative forever after, because the pool warms permanently but the tax
+  never stops. Three things then sealed it: **there is no per-repo hook
+  scoping** — `config.Hooks` is a flat `{post_create, pre_destroy}` and
+  `loadUser` reads a single file, so the hook would run this repo's build
+  commands in every repo treehouse ever touches, scopable only by hand-rolled
+  `cmd.exe` conditionals (the Windows hook shell is `%COMSPEC% /d /s /c`);
+  **the cold state already announces itself**, because `search_kb` on an
+  unindexed tree returns a SYS-003 *error* whose `next_actions` reads "Run
+  scripts/index.py to build the index, then retry this search", making a cold
+  tree a legible 25-second fix rather than a silent trap; and it would add **a
+  second piece of un-versioned machine state** beside `~/go/bin/treehouse.exe`,
+  and a worse one — a missing binary fails loudly, a missing hook is
+  indistinguishable from a normal cold tree. Versioning it in `dotfiles` would
+  close that gap, at the cost of putting one repo's build commands into
+  machine-global config. Cleared rather than held against it: the hook **cannot**
+  race `treehouse return`, since it completes before the lease is handed over,
+  and an interrupted index self-heals — `plan_index_update` diffs desired chunks
+  against what is actually in the collection and re-embeds only what is missing.
 - **Two worktree systems now coexist.** Background-task sessions still use the
   built-in mechanism, and neither system knows about the other's trees.
 - **`treehouse update` must not be run on this install.** Upstream ships `v2.x`
