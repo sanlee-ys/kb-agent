@@ -6,6 +6,8 @@ manual smoke run.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import httpx
 
 import scripts.index as index
@@ -56,6 +58,48 @@ def test_collect_documents_builds_parallel_arrays(tmp_path, monkeypatch):
     assert {m["name"] for m in metadatas} == {"foo", "bar"}
     assert len(set(ids)) == 2  # ids are unique
     assert all("#" in i for i in ids)  # ids follow "kind/name#i"
+
+
+def test_is_note_scaffolding():
+    notes_dir = Path("/notes")
+    # Scaffolding by filename, case-insensitively (Windows filesystems vary).
+    assert index.is_note_scaffolding(notes_dir / "README.md", notes_dir)
+    assert index.is_note_scaffolding(notes_dir / "CLAUDE.md", notes_dir)
+    assert index.is_note_scaffolding(notes_dir / "readme.md", notes_dir)
+    # Scaffolding by directory, at any depth.
+    assert index.is_note_scaffolding(
+        notes_dir / "graphify-out" / "2026-07-19" / "GRAPH_REPORT.md", notes_dir
+    )
+    # Real notes pass through, including in subdirectories.
+    assert not index.is_note_scaffolding(notes_dir / "07-embeddings.md", notes_dir)
+    assert not index.is_note_scaffolding(notes_dir / "glossary.md", notes_dir)
+    assert not index.is_note_scaffolding(notes_dir / "deep" / "note.md", notes_dir)
+
+
+def test_collect_documents_filters_notes_scaffolding(tmp_path, monkeypatch):
+    """The notes_dirs sweep indexes notes but not repo scaffolding."""
+    kb = tmp_path / "kb"
+    kb.mkdir()
+    notes = tmp_path / "my-notes"
+    (notes / "graphify-out" / "2026-07-19").mkdir(parents=True)
+    (notes / "01-real-note.md").write_text("# Real\ncontent", encoding="utf-8")
+    (notes / "README.md").write_text("# Front door", encoding="utf-8")
+    (notes / "CLAUDE.md").write_text("# Steering", encoding="utf-8")
+    (notes / "graphify-out" / "2026-07-19" / "GRAPH_REPORT.md").write_text(
+        "# Generated", encoding="utf-8"
+    )
+    (tmp_path / "projects.yaml").write_text(
+        f"projects: []\nnotes_dirs:\n  - {notes}\n", encoding="utf-8"
+    )
+
+    monkeypatch.setattr(index, "KB_DIR", kb)
+    monkeypatch.setattr(index, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(index, "collect_notes_from_api", lambda: ([], [], []))
+
+    documents, metadatas, ids = index.collect_documents()
+
+    assert [m["source"] for m in metadatas] == ["my-notes/01-real-note.md"]
+    assert all(m["kind"] == "notes" for m in metadatas)
 
 
 # --- plan_index_update (incremental diff) ---
