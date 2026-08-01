@@ -574,7 +574,11 @@ TOOLS = [
             "Search the personal knowledge base of projects, libraries, and "
             "plain-language concept notes. Call this whenever the user asks about "
             "a tool, library, concept, design decision, or how something was used "
-            "in a project."
+            "in a project. Set the 'kind' filter whenever the question clearly "
+            "targets one of those three slices: a filtered search is markedly more "
+            "accurate than searching all kinds at once. Leave 'kind' unset only "
+            "when the question spans slices or you genuinely cannot tell which one "
+            "it wants."
         ),
         "input_schema": {
             "type": "object",
@@ -587,8 +591,17 @@ TOOLS = [
                     "type": "string",
                     "enum": ["projects", "libraries", "notes"],
                     "description": (
-                        "Optional filter: restrict to projects, libraries, "
-                        "or concept notes."
+                        "Which slice of the KB to search. Pass this whenever the "
+                        "question clearly targets one slice; omit it only for a "
+                        "question that spans slices or is genuinely ambiguous. "
+                        "'projects' — one of the user's own projects, repos, or "
+                        "services: what it does, what it depends on, how it is "
+                        "built, a design decision it made, or a convention or "
+                        "contract internal to it. 'libraries' — a third-party "
+                        "package or dependency: what it is for, or which package "
+                        "provides a given capability. 'notes' — plain-language "
+                        "explainers of general technical concepts, not tied to any "
+                        "one of the user's projects or to a specific package."
                     ),
                 },
                 "n_results": {
