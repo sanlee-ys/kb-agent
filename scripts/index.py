@@ -39,6 +39,16 @@ NOTES_API_PROJECT = "notes-api"
 # Roughly target this many characters per chunk before starting a new one.
 MAX_CHUNK_CHARS = 1200
 
+# Repo scaffolding a notes_dir may contain that must never be indexed as notes:
+# repo front doors and agent-steering files by name, generated output by
+# directory. notes_dirs point at whole repos, so rglob sweeps these up, and
+# their chunks crowd real content out of the top-k — GRAPH_REPORT.md chunks sat
+# in the top 5 of two of the three unfiltered gold-set misses (2026-08-02
+# baseline). Matched case-insensitively; kb/ stubs are generated content and
+# never pass through this filter.
+SCAFFOLDING_FILENAMES = {"readme.md", "claude.md", "agents.md", "contributing.md"}
+SCAFFOLDING_DIRNAMES = {"graphify-out"}
+
 console = Console()
 
 
@@ -78,6 +88,25 @@ def chunk_markdown(text: str) -> list[str]:
 
     flush()
     return chunks
+
+
+def is_note_scaffolding(md_file: Path, notes_dir: Path) -> bool:
+    """True when a notes_dir Markdown file is repo scaffolding, not a note.
+
+    A file is scaffolding when its name is in SCAFFOLDING_FILENAMES or any
+    directory between notes_dir and the file is in SCAFFOLDING_DIRNAMES.
+
+    Args:
+        md_file: The Markdown file found under the notes directory.
+        notes_dir: The notes_dir root it was found under.
+
+    Returns:
+        True if the file should be excluded from the notes index.
+    """
+    relative = md_file.relative_to(notes_dir)
+    if any(part.lower() in SCAFFOLDING_DIRNAMES for part in relative.parts[:-1]):
+        return True
+    return relative.name.lower() in SCAFFOLDING_FILENAMES
 
 
 def notes_dirs() -> list[Path]:
@@ -194,8 +223,9 @@ def collect_documents() -> tuple[list[str], list[dict], list[str]]:
     Walks the in-repo kb/ tree (kind = parent folder, e.g. ``projects`` /
     ``libraries``) plus any external ``notes_dirs`` from projects.yaml
     (kind = ``notes``) and live notes from the notes-api service
-    (kind = ``notes``). Each metadata dict carries ``source``, ``kind``, and
-    ``name``.
+    (kind = ``notes``). Repo scaffolding inside a notes_dir (README/CLAUDE.md,
+    generated output — see is_note_scaffolding) is excluded from the notes
+    sweep. Each metadata dict carries ``source``, ``kind``, and ``name``.
 
     Returns:
         A ``(documents, metadatas, ids)`` tuple of equal-length lists.
@@ -218,7 +248,11 @@ def collect_documents() -> tuple[list[str], list[dict], list[str]]:
         if not notes_dir.exists():
             console.print(f"[yellow]notes_dir not found, skipping: {notes_dir}[/yellow]")
             continue
+        skipped = 0
         for md_file in sorted(notes_dir.rglob("*.md")):
+            if is_note_scaffolding(md_file, notes_dir):
+                skipped += 1
+                continue
             _add_file(
                 md_file,
                 "notes",
@@ -226,6 +260,11 @@ def collect_documents() -> tuple[list[str], list[dict], list[str]]:
                 documents,
                 metadatas,
                 ids,
+            )
+        if skipped:
+            console.print(
+                f"[dim]{notes_dir.name}: skipped {skipped} scaffolding file(s) "
+                f"(README/CLAUDE.md/generated output)[/dim]"
             )
 
     # Pull live notes from the notes-api (closes the "tags → knowledge base" loop).

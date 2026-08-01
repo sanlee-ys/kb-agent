@@ -18,5 +18,7 @@ projects:
 # Extra directories of hand-written Markdown notes to index alongside the
 # generated KB. These live outside this repo (and outside git) on purpose;
 # index.py reads them at index time and tags their chunks with kind: "notes".
+# Repo scaffolding inside these dirs (README/CLAUDE.md, generated output like
+# graphify-out/) is excluded — see is_note_scaffolding in scripts/index.py.
 notes_dirs:
   - C:\Users\sanle\code\learning-notes
