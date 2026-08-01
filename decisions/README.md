@@ -12,10 +12,11 @@ cross-repo decisions get a `SYS-NNN` in the architecture repo, repo-local ones l
 | [ADR-004](ADR-004-retrieval-gold-set-scope.md) | Scope the retrieval gold set at 27 weighted queries, with no LLM judge | Accepted |
 | [ADR-005](ADR-005-accept-chromadb-cve.md) | Accept CVE-2026-45829 (chromadb) as tolerable risk | Accepted |
 | [ADR-006](ADR-006-mcp-as-second-transport.md) | Serve MCP as a second transport over the same tools, not a second implementation | Accepted |
-| [ADR-007](ADR-007-incremental-index-and-stub-protection.md) | Never overwrite a stub without `--force`; update the index incrementally by default | Accepted |
+| [ADR-007](ADR-007-stub-protection-and-freshness-manifest.md) | Never overwrite a stub without `--force`; detect drift with a fingerprint manifest | Accepted |
 | [ADR-008](ADR-008-claude-code-action-pr-review.md) | Adopt the advisory agentic PR review lane (SYS-021 instance) — **on-demand via `@claude` only** since 2026-07-26 | Accepted |
 | [ADR-009](ADR-009-treehouse-warm-worktree-pool.md) | A warm worktree pool (`treehouse`, `max_trees = 4`) for **this repo only** — the ~458 MB venv and the re-embed make cold checkouts expensive here and nowhere else | Accepted |
 | [ADR-010](ADR-010-hybrid-bm25-retrieval-measured-and-not-defaulted.md) | Build hybrid BM25+dense retrieval, measure it against the gold set, and keep **dense-only** as the default — the negative result the v2 kickoff asked for | Accepted |
+| [ADR-011](ADR-011-incremental-index-by-default.md) | Update the index incrementally by default; `--rebuild` is the escape hatch — split out of ADR-007 on 2026-08-02 | Accepted |
 
 ## Why this tier was missing, and what it is not
 
@@ -51,10 +52,12 @@ here have an ADR: rescoping v2 inward → [ADR-003](ADR-003-rescope-v2-inward.md
 scope → [ADR-004](ADR-004-retrieval-gold-set-scope.md); the chromadb CVE acceptance →
 [ADR-005](ADR-005-accept-chromadb-cve.md); MCP as a second transport →
 [ADR-006](ADR-006-mcp-as-second-transport.md); and the two `ingest.py`/`index.py` rules
-(stub protection, incremental re-index) migrated together as
-[ADR-007](ADR-007-incremental-index-and-stub-protection.md), since they are one decision about
-not destroying work by default. The tool-seam threat model was migrated in the same pass as
-[ADR-002](ADR-002-agent-tool-seam-threat-model.md).
+(stub protection, incremental re-index) migrated together as ADR-007, on the premise that they
+are one decision about not destroying work by default. That premise did not survive: ADR-007
+disputed it in its own text and San ruled to split on 2026-08-02, so the two rules are now
+[ADR-007](ADR-007-stub-protection-and-freshness-manifest.md) and
+[ADR-011](ADR-011-incremental-index-by-default.md). The tool-seam threat model was migrated in
+the same pass as [ADR-002](ADR-002-agent-tool-seam-threat-model.md).
 
 The section stays because "migration completed" is itself worth recording. If a future audit
 finds another decision sitting in prose, list it here rather than fixing it silently.

@@ -1,44 +1,27 @@
-# ADR-007: Never overwrite a stub without `--force`; update the index incrementally by default
+# ADR-007: Never overwrite a stub without `--force`; detect drift with a fingerprint manifest
 
 **Status:** Accepted
-**Date:** Stub protection 2026-06-20; `--check`/`--accept` fingerprint manifest 2026-07-16 (`311909f`, #44); incremental re-index 2026-07-17 (`0e40dd2`, #45). Recorded as an ADR 2026-07-18.
+**Date:** Stub protection 2026-06-20; `--check`/`--accept` fingerprint manifest 2026-07-16 (`311909f`, #44). Recorded as an ADR 2026-07-18. Narrowed to these two pieces on 2026-08-02, when the incremental re-index half was split out.
 **Deciders:** San Lee
 
 ---
 
-## Note on scope: this is probably two decisions, not one
+## Note on scope: the split was executed
 
-This ADR was commissioned as one record on the premise that both halves share a rationale —
-protecting hand-authored work from a pipeline that would clobber it. **The source prose does not
-support that premise, and it is worth saying so before the reasoning below rather than papering
-over it.**
-
-`docs/notes/v2-kickoff.md:138` calls them "Two small, independent pieces," and gives them two
-different grounds (`docs/notes/v2-kickoff.md:131-136`):
-
-- Stub protection answers **"no staleness signal"** — a stub silently drifts from its source, and
-  hand-edits must survive re-ingestion.
-- Incremental re-index answers **"wasteful rebuilds"** — "re-embedding every chunk on every index
-  run is fine at today's handful of stubs, but it's rebuild-the-world by design."
-
-Nothing in `chroma_db/` is hand-authored; it is generated and git-ignored (`CLAUDE.md:150`,
-`.gitignore:1`). So the incremental-index decision cannot be protecting hand-authored work — there
-is none in the artifact it governs. The two share a *release train* (the same "keep the KB fresh"
-chore track) and a *shape* (safe default, destructive escape hatch), not a rationale.
-
-`decisions/README.md:44-45` already lists them as two separate migration items.
-
-**Recommendation: split this into two ADRs** — one for stub protection plus the fingerprint
-manifest, one for the incremental index — and let this file become the first of them. Both are
-recorded here for now so neither is lost, and the reasoning below is kept separated by decision so
-a split is a cut, not a rewrite. That call is San's.
+This ADR was originally commissioned as one record covering two decisions, and argued in its own
+words that it was probably two. **That call was San's, and on 2026-08-02 he ruled to split it.**
+Executed the same day: the incremental re-index decision moved to
+[ADR-011](ADR-011-incremental-index-by-default.md), which carries the argument for why the two
+halves are separate decisions, and this record narrowed to stub protection plus the
+`--check`/`--accept` fingerprint manifest. The reasoning below was carved, not rewritten.
 
 ## Context
 
 kb-agent is a one-directional pipeline: `projects.yaml → ingest.py → kb/*.md → index.py →
 chroma_db/ → tools.search_kb → agent` (`CLAUDE.md:67`). Two stages in it are regeneration steps,
 and both were originally destructive-by-default in the sense that re-running them would either
-throw away work or redo it wholesale.
+throw away work or redo it wholesale. This record covers the first of them; the second is
+[ADR-011](ADR-011-incremental-index-by-default.md).
 
 **Stage 1, `ingest.py`.** Stubs are LLM-generated first drafts. The intended workflow is that the
 author hand-annotates them afterwards, which makes the file more valuable than what the generator
@@ -51,12 +34,6 @@ frozen while the project it describes moves on (a new dependency, a rewritten RE
 (`docs/notes/v2-kickoff.md:126-128`), with **no signal** that drift had happened. The only remedy
 on offer was `--force`, which is exactly the destructive act the skip existed to prevent. #44
 closed that gap.
-
-**Stage 2, `index.py`.** The original implementation dropped the ChromaDB collection and re-embedded
-everything on every run. That is trivially correct — no stale chunk can survive a drop — and it was
-cheap at the current corpus size. It was still "rebuild-the-world by design"
-(`docs/notes/v2-kickoff.md:135-136`). #45 replaced the default while keeping the old behavior
-reachable.
 
 The author was explicit that this whole track is **plumbing, not the v2 milestone**: "this track has
 nothing to measure — it's plumbing... it fixes a real bug but produces no eval, so it doesn't carry
@@ -89,44 +66,29 @@ Three supporting choices, all stated in the record:
 - **Freshness tracks project stubs only.** Library stubs are generated from a package name, not a
   source file, so there is nothing for them to drift against (`CLAUDE.md:82`).
 
-**3. `index.py` updates incrementally by default; `--rebuild` is the escape hatch.** It diffs the
-freshly-collected chunks against the persisted collection and re-embeds only new/changed chunks
-while deleting chunks from removed or renamed files (`scripts/index.py:245-266`,
-`scripts/index.py:323-336`). No second manifest: **the collection itself is the record of what was
-indexed last run** (`CLAUDE.md:86-88`). The result is "identical to a full rebuild without
-re-embedding everything" (`scripts/index.py:13-16`). `--rebuild` drops and re-embeds from scratch
-(`scripts/index.py:308-311`).
-
-The invariant the old drop-and-pave guaranteed — no stale chunks — is preserved by the delete half
-of the diff and is covered by a real ChromaDB round-trip test
-(`docs/notes/v2-kickoff.md:155-157`; `tests/test_kb_roundtrip.py`, the `@pytest.mark.integration`
-test described at `CLAUDE.md:49-53`). The CVE-2026-45829 assessment was re-checked against the new
-path and still holds: same embedded `PersistentClient`, same local-only writer, no custom
-`embedding_function` (`docs/notes/v2-kickoff.md:157-158`, echoed at `scripts/index.py:300`).
-
 ## Downstream surfaces
 
-- **`CLAUDE.md` Architecture §1 and §2** — the operative instruction for agents lives there and
+- **`CLAUDE.md` Architecture §1** — the operative instruction for agents lives there and
   stays there. This ADR carries the why; `CLAUDE.md` carries the do-this. Unmodified by this record.
-- **`CLAUDE.md` Commands block** (`CLAUDE.md:23-27`) — the five flags (`--force`, `--check`,
-  `--accept`, plain `index.py`, `--rebuild`) are documented as the pipeline's public surface. Any
-  change here must update that block.
+- **`CLAUDE.md` Commands block** (`CLAUDE.md:23-27`) — the three flags this ADR governs (`--force`,
+  `--check`, `--accept`) are documented as part of the pipeline's public surface. Any change here
+  must update that block.
 - **`docs/notes/v2-kickoff.md` "Near-term chore: keep the KB fresh"** — the origin prose, both
   pieces marked SHIPPED. Retained as the investigation record; this ADR is the decision record.
 - **`decisions/README.md`** — its "Still to migrate" list names both items (lines 44-45) and its
   index table needs a row for this ADR. **Not updated by this session**: the index is an aggregated
   file and several ADRs are being migrated in parallel, so the wiring belongs to a single integrator
   after the content lands.
+- **[ADR-011](ADR-011-incremental-index-by-default.md)** — the other half of the original record,
+  split out 2026-08-02. Same release train and same shape (safe default, destructive escape hatch),
+  different rationale.
 - **`kb/.ingest-manifest.json`** — a committed artifact created by this decision. Merge conflicts in
   it are expected across machines; `--accept` regenerates it.
 - **`kb/projects/kb-agent.md`** — the known staleness risk (`CLAUDE.md:122-128`). It is hand-written
   and outside the pipeline, so `--check` reports it `unmanaged` rather than fresh or stale. This
   decision makes the risk *visible*; it does not fix it.
-- **`docs/notes/chromadb-cve-2026-45829-assessment.md`** — re-checked against the incremental path
-  and still holding. Any future change to how `index.py` constructs its client re-opens it.
-- **CI (`.github/workflows/ci.yml`)** — runs the integration round-trip test that guards the
-  incremental path's no-stale-chunks invariant. `--check` is *not* wired into CI today; the
-  non-zero exit is a capability, not an active gate.
+- **CI (`.github/workflows/ci.yml`)** — `--check` is *not* wired into CI today; the non-zero exit is
+  a capability, not an active gate.
 
 ## Consequences
 
@@ -147,14 +109,6 @@ path and still holds: same embedded `PersistentClient`, same local-only writer, 
 - **The manifest is a committed file that changes on most ingests,** so it is a small, predictable
   merge hotspot across San's two machines. Chosen deliberately over git-ignoring it, so baselines
   are shared rather than per-clone.
-- **Incremental indexing trades trivial correctness for a diff that must be right.** Drop-and-pave
-  could not leave a stale chunk; the diff can, if the delete half is wrong. That risk is why the
-  round-trip test exists, and it is now load-bearing rather than nice-to-have.
-- **The stated benefit is not yet measured.** The record claims the incremental path is faster and
-  identical in result; the "identical" half is tested, the "faster" half is asserted, not
-  benchmarked. At the current corpus size — a handful of stubs — the win is negligible by the
-  author's own account. This is a decision made for how the pipeline will behave later, not for a
-  measured gain today.
 - **No eval, by design.** Per `docs/notes/v2-kickoff.md:160-163` this track produces no numbers and
   must not be confused with the v2 retrieval-quality milestone.
 
@@ -170,7 +124,3 @@ path and still holds: same embedded `PersistentClient`, same local-only writer, 
 | Track freshness for library stubs too | Library stubs are generated from a package name, not a source file, so they have nothing to drift against (`CLAUDE.md:81-82`) |
 | Git-ignore the manifest as a local cache | Baselines would not travel; every machine and fresh clone would report everything `untracked`. Committed instead, accepting the merge-hotspot cost (`CLAUDE.md:81-82`) |
 | Store the manifest as Markdown alongside the stubs | `index.py` embeds every `kb/**/*.md`, so a Markdown manifest would be indexed and become retrievable noise. JSON keeps it out of the corpus (`scripts/ingest.py:48`) |
-| Keep drop-and-rebuild as the only index path | Correct but "rebuild-the-world by design"; re-embedding every chunk on every run does not scale past the current handful of stubs (`docs/notes/v2-kickoff.md:135-136`) |
-| Remove `--rebuild` once incremental works | Kept deliberately as "the escape hatch" (`CLAUDE.md:90`) — the one path that cannot inherit a bug in the diff |
-| Track indexed state in a second sidecar manifest, mirroring ingest's | Rejected in favor of using the persisted collection itself as the record of the last run — "no separate manifest" (`CLAUDE.md:87-88`, `docs/notes/v2-kickoff.md:151-152`). Avoids a second file that can disagree with the artifact it describes |
-| Filter the `notes` corpus noise (`CLAUDE.md`/`README.md`/`graphify-out/` picked up by the rglob) while touching the index | Named as "a deliberate non-fix" — whether that noise hurts retrieval is a question for the gold set to answer with a number rather than a vibe (`docs/notes/v2-kickoff.md:114-118`) |
