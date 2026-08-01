@@ -41,12 +41,14 @@ claude mcp list                           # check it's registered and Connected
 [ADR-009](decisions/ADR-009-treehouse-warm-worktree-pool.md)) rather than the house
 default `claude --worktree`, because this repo's `.venv` is ~458 MB and `chroma_db/` is
 git-ignored, so a cold checkout has to re-embed the whole KB. **This repo only** — every
-other repo still uses `claude --worktree`. Three things to know: worktrees arrive with a
+other repo still uses `claude --worktree`. Four things to know: worktrees arrive with a
 **detached `HEAD`**, so branch before committing or the work reads as *clean* and the next
 acquisition resets over it; `treehouse return` **hard-kills** every process rooted in the
 worktree (on Windows with no grace period), so never return one with an indexing run in
-flight; and a warm cache is deliberate stale state, so **re-run a surprising result in a
-cold checkout** before believing it.
+flight; a warm cache is deliberate stale state, so **re-run a surprising result in a
+cold checkout** before believing it; and the pool warms on **reuse, not creation** — the
+first lease of each of the four trees is necessarily cold (no `.venv`, no `chroma_db/`),
+so a cold tree is expected up to four times, not a sign the cache broke.
 
 Tests live in `tests/`. Most run offline — no API key, no network — and
 `tests/test_tools.py` includes `_obs()`, a grader that asserts every tool result conforms

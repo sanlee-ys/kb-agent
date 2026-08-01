@@ -84,6 +84,21 @@ read before adoption.
   work left on a detached `HEAD` in an idle pooled worktree reads as *clean*, so
   the next acquisition resets over it. Reflog-recoverable, not obvious. **Branch
   and push before leaving a worktree idle.**
+- **The pool warms on *reuse*, never on *creation* — so the first lease of each
+  tree is cold, and that is expected, not a cache failure.** `treehouse get`
+  reuses an idle tree by running `checkout --detach --force` → `reset --hard` →
+  `clean -fd`. That `clean` has **no `-x`**, so git leaves ignored files alone
+  and `.venv/` and `chroma_db/` survive — *that* is the entire warm-cache
+  mechanism. When no idle tree exists and the pool is under `max_trees`, it
+  instead runs `git worktree add`, which produces a bare checkout carrying no
+  ignored files at all; nothing copies a sibling tree's venv or index in. So a
+  pool of `max_trees = 4` pays the ~458 MB venv and a full re-embed **up to four
+  times**, once per tree, before it is fully warm. Two sessions starting minutes
+  apart against an empty pool both get cold trees. The only hook that could
+  pre-warm a new tree is `post_create`, and treehouse deliberately **ignores
+  hooks in repo-level `treehouse.toml`** — they are honoured only from the
+  user-level `~/.config/treehouse/config.toml`, so this cannot be fixed by a
+  committed file.
 - **Two worktree systems now coexist.** Background-task sessions still use the
   built-in mechanism, and neither system knows about the other's trees.
 - **`treehouse update` must not be run on this install.** Upstream ships `v2.x`
