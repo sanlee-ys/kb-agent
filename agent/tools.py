@@ -831,8 +831,11 @@ TOOLS = [
     {
         "name": "list_projects",
         "description": (
-            "List all projects tracked in the knowledge base. Call this when the "
-            "user asks what projects exist or which projects use a given library."
+            "Return the roster of tracked projects — each one's name and one-line "
+            "description from projects.yaml, and nothing more. Call this only when "
+            "the user asks what projects exist. For anything about a project's "
+            "contents, dependencies, or internals, use search_kb with "
+            "kind='projects' instead."
         ),
         "input_schema": {"type": "object", "properties": {}},
     },
