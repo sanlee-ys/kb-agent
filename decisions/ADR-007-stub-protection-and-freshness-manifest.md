@@ -75,10 +75,10 @@ Three supporting choices, all stated in the record:
   must update that block.
 - **`docs/notes/v2-kickoff.md` "Near-term chore: keep the KB fresh"** — the origin prose, both
   pieces marked SHIPPED. Retained as the investigation record; this ADR is the decision record.
-- **`decisions/README.md`** — its "Still to migrate" list names both items (lines 44-45) and its
-  index table needs a row for this ADR. **Not updated by this session**: the index is an aggregated
-  file and several ADRs are being migrated in parallel, so the wiring belongs to a single integrator
-  after the content lands.
+- **`decisions/README.md`** — its migration-history section names both items (lines 44-45) and its
+  index table carries the row for this ADR. That row was deliberately not written by the migration
+  session itself: the index is an aggregated file and several ADRs were migrated in parallel, so the
+  wiring belonged to a single integrator after the content landed.
 - **[ADR-011](ADR-011-incremental-index-by-default.md)** — the other half of the original record,
   split out 2026-08-02. Same release train and same shape (safe default, destructive escape hatch),
   different rationale.
