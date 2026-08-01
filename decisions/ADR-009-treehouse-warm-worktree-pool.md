@@ -62,7 +62,7 @@ read before adoption.
 | `~/.config/treehouse/config.toml` | **Deliberately not created.** It is the only file that can carry a `post_create` hook — `config.Load` zeroes hooks read from repo-level `treehouse.toml` — so it is the one place the cold-first-lease cost could be fixed. Rejected on the measurements in Consequences. If it is ever added, it belongs in `dotfiles` next to the pinned `go install`, not hand-written on one machine. |
 | `.gitignore` | **Unchanged, deliberately.** Worktrees live under `$HOME/.treehouse/`, not in the repo, so the pool leaves nothing to ignore. |
 | `chroma_db/` | **Unchanged and still git-ignored.** It is the *reason* for this ADR, not a thing this ADR alters — the pool preserves it between sessions rather than committing it. |
-| [ADR-007](ADR-007-incremental-index-and-stub-protection.md) | Its incremental-index behaviour is what makes a warm pool worth having: a preserved `chroma_db/` plus incremental indexing means a reused worktree re-embeds only what changed. |
+| [ADR-011](ADR-011-incremental-index-by-default.md) | Its incremental-index behaviour is what makes a warm pool worth having: a preserved `chroma_db/` plus incremental indexing means a reused worktree re-embeds only what changed. |
 | `career/ideas.md` | Updated the same day with the audit, the install method, and the `treehouse update` warning. Private repo; the operative record is this ADR. |
 
 ## Consequences
