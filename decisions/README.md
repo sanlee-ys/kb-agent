@@ -15,6 +15,7 @@ cross-repo decisions get a `SYS-NNN` in the architecture repo, repo-local ones l
 | [ADR-007](ADR-007-incremental-index-and-stub-protection.md) | Never overwrite a stub without `--force`; update the index incrementally by default | Accepted |
 | [ADR-008](ADR-008-claude-code-action-pr-review.md) | Adopt the advisory agentic PR review lane (SYS-021 instance) — **on-demand via `@claude` only** since 2026-07-26 | Accepted |
 | [ADR-009](ADR-009-treehouse-warm-worktree-pool.md) | A warm worktree pool (`treehouse`, `max_trees = 4`) for **this repo only** — the ~458 MB venv and the re-embed make cold checkouts expensive here and nowhere else | Accepted |
+| [ADR-010](ADR-010-hybrid-bm25-retrieval-measured-and-not-defaulted.md) | Build hybrid BM25+dense retrieval, measure it against the gold set, and keep **dense-only** as the default — the negative result the v2 kickoff asked for | Accepted |
 
 ## Why this tier was missing, and what it is not
 

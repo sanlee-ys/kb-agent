@@ -14,6 +14,12 @@ dependencies = [
     "gradio>=6.20.0",
     "pyyaml>=6.0",
     "httpx>=0.27.0",
+    # Lexical (BM25) leg of search_kb's hybrid retrieval path — see
+    # decisions/ADR-010. Deliberately the smallest thing that works: pure Python,
+    # no transitive deps beyond numpy (already pulled in by chromadb), no
+    # framework. Floor at 0.2.2, the release that exposes BM25Okapi with the
+    # tokenized-corpus constructor this code relies on.
+    "rank-bm25>=0.2.2",
     "rich>=13.0.0",
     "python-dotenv>=1.0.0",
     # Server-side MCP SDK for mcp_server/server.py. Not the `[cli]` extra: nothing

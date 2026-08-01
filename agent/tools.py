@@ -2,8 +2,10 @@
 
 Four tools:
 
-  - search_kb(query, kind?, n_results?) — semantic search over the indexed
-    Markdown KB (ChromaDB). Local.
+  - search_kb(query, kind?, n_results?) — search over the indexed Markdown KB.
+    Local. Dense (ChromaDB) by default, with a switchable hybrid dense+BM25 path
+    behind ``HYBRID_RETRIEVAL`` — see kb-agent/ADR-010 for the A/B that set that
+    default.
   - list_projects() — list the projects tracked in projects.yaml. Local.
   - classify_snippet(text) — classify a defense-news snippet by calling the
     defense-news-classifier's HTTP service. An "ecosystem" seam: the agent
@@ -50,20 +52,49 @@ results via ``_success()`` / ``_problem()`` so the shape lives in one place.
 
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import json
 import os
+import re
 from pathlib import Path
+from typing import NamedTuple
 from urllib.parse import urlparse
 
 import chromadb
 import httpx
 import yaml
+from rank_bm25 import BM25Okapi
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PROJECTS_FILE = REPO_ROOT / "projects.yaml"
 CHROMA_DIR = REPO_ROOT / "chroma_db"
 COLLECTION_NAME = "knowledge_base"
+KINDS = ("projects", "libraries", "notes")
+
+# --- Retrieval mode (kb-agent/ADR-010) ---------------------------------------
+# search_kb can retrieve dense-only (ChromaDB / all-MiniLM-L6-v2) or hybrid
+# (dense + BM25, fused with Reciprocal Rank Fusion). Both paths are live and
+# switchable; HYBRID_RETRIEVAL is the default when a caller passes no explicit
+# `hybrid=`. It is False because the gold-set A/B said so, not because the
+# hybrid path is unfinished — see decisions/ADR-010 for the numbers.
+HYBRID_RETRIEVAL = False
+
+# RRF constant. 60 is the value from Cormack et al. (2009), where it was tuned
+# once and then left alone precisely because the method is insensitive to it;
+# keeping the canonical value means the fusion has no knob that was silently
+# fitted to this 27-query gold set.
+RRF_K = 60
+
+# How deep each leg ranks before fusion. Fusing only the top n_results would
+# make RRF a no-op for anything the dense leg already ranked first, so each leg
+# offers a wider candidate pool and fusion picks the final n_results out of it.
+CANDIDATE_MULTIPLIER = 5
+MIN_CANDIDATES = 25
+
+# Word characters only, lowercased: "SYS-003" -> ["sys", "003"] on both the
+# query and the corpus side, so hyphenated jargon still matches lexically.
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 
 def _success(summary: str, payload, source) -> str:
@@ -120,14 +151,175 @@ def _get_collection():
         return None
 
 
-def search_kb(query: str, kind: str | None = None, n_results: int = 5) -> str:
+def _tokenize(text: str) -> list[str]:
+    """Lowercase a string into BM25 terms. Used for both corpus and query."""
+    return _TOKEN_RE.findall(text.lower())
+
+
+class _LexicalIndex(NamedTuple):
+    """An in-memory BM25 view of the whole KB collection.
+
+    Attributes:
+        fingerprint: Hash of the (id, text) pairs it was built from — the cache key.
+        ids: Chunk ids, in collection order.
+        documents: Chunk texts, parallel to ``ids``.
+        metadatas: Chunk metadata dicts, parallel to ``ids``.
+        position: ``id -> index`` into the parallel lists.
+        bm25: The fitted BM25 model over the tokenized ``documents``.
+    """
+
+    fingerprint: str
+    ids: list[str]
+    documents: list[str]
+    metadatas: list[dict]
+    position: dict[str, int]
+    bm25: BM25Okapi
+
+
+# One cached _LexicalIndex per process, invalidated by content fingerprint.
+_LEXICAL_CACHE: _LexicalIndex | None = None
+
+
+def _corpus_fingerprint(ids: list[str], documents: list[str]) -> str:
+    """Hash the (id, text) pairs that define a BM25 index's inputs."""
+    digest = hashlib.sha256()
+    for chunk_id, document in zip(ids, documents):
+        digest.update(chunk_id.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(document.encode("utf-8"))
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _lexical_index(collection) -> _LexicalIndex | None:
+    """Build (or reuse) the BM25 index over the collection's chunks.
+
+    Reads the corpus back out of ChromaDB with ``collection.get()`` — a read, so
+    the CVE-2026-45829 assessment's "embedded client, one local writer, no custom
+    embedding_function" premises are untouched. The read is cheap (a few hundred
+    chunks) and is what makes the cache *correct*: the fingerprint is computed
+    from the text actually stored, so an incremental re-index that changes chunk
+    contents without changing the chunk count still invalidates.
+
+    Args:
+        collection: The open ChromaDB collection.
+
+    Returns:
+        The fitted index, or None when the collection is empty (BM25 is
+        undefined on an empty corpus — callers fall back to dense-only).
+    """
+    global _LEXICAL_CACHE
+    snapshot = collection.get(include=["documents", "metadatas"])
+    ids = list(snapshot.get("ids") or [])
+    documents = list(snapshot.get("documents") or [])
+    metadatas = list(snapshot.get("metadatas") or [])
+    if not ids or len(documents) != len(ids):
+        return None
+
+    fingerprint = _corpus_fingerprint(ids, documents)
+    if _LEXICAL_CACHE is None or _LEXICAL_CACHE.fingerprint != fingerprint:
+        _LEXICAL_CACHE = _LexicalIndex(
+            fingerprint=fingerprint,
+            ids=ids,
+            documents=documents,
+            metadatas=metadatas,
+            position={chunk_id: i for i, chunk_id in enumerate(ids)},
+            bm25=BM25Okapi([_tokenize(doc) for doc in documents]),
+        )
+    return _LEXICAL_CACHE
+
+
+def _lexical_ranking(
+    index: _LexicalIndex, query: str, kind: str | None, limit: int
+) -> list[str]:
+    """Rank chunk ids by BM25 score, highest first.
+
+    Chunks scoring zero (no query term occurs in them) are dropped rather than
+    ranked: BM25 orders them arbitrarily, and feeding that arbitrary tail into
+    RRF would add rank signal where there is no lexical evidence at all.
+
+    The ``kind`` filter is applied *after* scoring, so term statistics (IDF,
+    average document length) stay corpus-wide and a filtered query returns the
+    same relative order as the unfiltered one, minus the excluded kinds. That
+    mirrors the dense leg, whose embeddings are likewise kind-independent.
+
+    Args:
+        index: The fitted lexical index.
+        query: The user query.
+        kind: A validated kind to restrict to, or None for all kinds.
+        limit: Maximum number of ids to return.
+
+    Returns:
+        Up to ``limit`` chunk ids in descending BM25 order; ties broken by
+        collection order so the ranking is deterministic.
+    """
+    scores = index.bm25.get_scores(_tokenize(query))
+    order = sorted(range(len(scores)), key=lambda i: (-scores[i], i))
+    ranked: list[str] = []
+    for i in order:
+        if scores[i] <= 0:
+            break  # sorted descending — everything after this is also zero
+        if kind is not None and index.metadatas[i].get("kind") != kind:
+            continue
+        ranked.append(index.ids[i])
+        if len(ranked) >= limit:
+            break
+    return ranked
+
+
+def reciprocal_rank_fusion(rankings: list[list[str]], k: int = RRF_K) -> list[str]:
+    """Fuse ranked id lists into one by Reciprocal Rank Fusion.
+
+    Each list contributes ``1 / (k + rank)`` to every id it ranks (rank is
+    1-based); ids are then sorted by total score. RRF fuses *ranks*, not scores,
+    which is the whole reason it suits this problem: a cosine distance and a BM25
+    score have no common scale, and any weighted blend of them would need a
+    normalization constant fitted on the same 27 queries it is being judged by.
+
+    Args:
+        rankings: One ranked list of chunk ids per retrieval leg. An id absent
+            from a leg simply earns nothing from it.
+        k: The RRF damping constant.
+
+    Returns:
+        All ids seen in any leg, best first. Ties are broken by first appearance
+        (earliest leg, then earliest rank within it), so the result is a pure
+        function of the inputs.
+    """
+    scores: dict[str, float] = {}
+    first_seen: list[str] = []
+    for ranking in rankings:
+        for rank, chunk_id in enumerate(ranking, start=1):
+            if chunk_id not in scores:
+                scores[chunk_id] = 0.0
+                first_seen.append(chunk_id)
+            scores[chunk_id] += 1.0 / (k + rank)
+    # sorted() is stable, so equal scores keep first_seen order.
+    return sorted(first_seen, key=lambda chunk_id: -scores[chunk_id])
+
+
+def search_kb(
+    query: str,
+    kind: str | None = None,
+    n_results: int = 5,
+    hybrid: bool | None = None,
+) -> str:
     """Semantically search the knowledge base for relevant chunks.
+
+    Two retrieval modes share this entry point (kb-agent/ADR-010). Dense-only
+    queries the ChromaDB collection and returns its ranking. Hybrid additionally
+    ranks the same chunk corpus with BM25 and fuses the two rankings with RRF.
+    Both honor ``kind`` identically, and both return the same chunk shape.
 
     Args:
         query: What to search for, in natural language.
         kind: Optional filter — ``"projects"``, ``"libraries"``, or ``"notes"``.
             Any other value (or None) searches all kinds.
         n_results: Maximum number of chunks to return.
+        hybrid: Force the retrieval mode. None (the default, and what every
+            model-facing caller passes) uses the ``HYBRID_RETRIEVAL`` default.
+            Deliberately absent from the ``TOOLS`` schema: it is an evaluation
+            and experiment hook, not something for the model to choose.
 
     Returns:
         A SYS-003 observation (JSON string). On success, ``payload`` is a list of
@@ -142,11 +334,35 @@ def search_kb(query: str, kind: str | None = None, n_results: int = 5) -> str:
             ["Run scripts/index.py to build the index, then retry this search."],
         )
 
-    where = {"kind": kind} if kind in ("projects", "libraries", "notes") else None
-    results = collection.query(query_texts=[query], n_results=n_results, where=where)
+    use_hybrid = HYBRID_RETRIEVAL if hybrid is None else hybrid
+    kind_filter = kind if kind in KINDS else None
+    where = {"kind": kind_filter} if kind_filter else None
 
+    # Dense-only needs exactly n_results; hybrid needs a deeper pool to fuse.
+    depth = (
+        max(n_results * CANDIDATE_MULTIPLIER, MIN_CANDIDATES) if use_hybrid else n_results
+    )
+    results = collection.query(query_texts=[query], n_results=depth, where=where)
+
+    ids = results.get("ids", [[]])[0]
     documents = results.get("documents", [[]])[0]
     metadatas = results.get("metadatas", [[]])[0]
+
+    if use_hybrid:
+        index = _lexical_index(collection)
+        if index is not None:
+            lexical = _lexical_ranking(index, query, kind_filter, depth)
+            by_id = dict(zip(ids, zip(documents, metadatas)))
+            for chunk_id in lexical:
+                if chunk_id not in by_id:
+                    i = index.position[chunk_id]
+                    by_id[chunk_id] = (index.documents[i], index.metadatas[i])
+            fused = reciprocal_rank_fusion([list(ids), lexical])
+            documents = [by_id[chunk_id][0] for chunk_id in fused]
+            metadatas = [by_id[chunk_id][1] for chunk_id in fused]
+
+    documents = documents[:n_results]
+    metadatas = metadatas[:n_results]
     if not documents:
         next_actions = ["Broaden or rephrase the query."]
         if where is not None:

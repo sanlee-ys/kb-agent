@@ -17,7 +17,13 @@ omits `kind`); pass --kind-filter to give the retriever each query's kind.
 
     uv run python scripts/eval_retrieval.py
     uv run python scripts/eval_retrieval.py --kind-filter
+    uv run python scripts/eval_retrieval.py --hybrid
     uv run python scripts/eval_retrieval.py --json eval/results.json
+
+``--hybrid`` forces search_kb's hybrid dense+BM25 path for the run regardless of
+the shipped ``tools.HYBRID_RETRIEVAL`` default, so both arms of the A/B run out
+of one checkout with no source edit between them (kb-agent/ADR-010). It changes
+which retriever is measured, never how it is scored.
 """
 
 from __future__ import annotations
@@ -25,6 +31,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from functools import partial
 from pathlib import Path
 from typing import Callable
 
@@ -168,6 +175,11 @@ def main() -> None:
         help="pass each query's kind to search_kb (default: search all kinds)",
     )
     parser.add_argument(
+        "--hybrid",
+        action="store_true",
+        help="force search_kb's hybrid dense+BM25 path (default: the shipped mode)",
+    )
+    parser.add_argument(
         "--json",
         type=Path,
         metavar="PATH",
@@ -175,7 +187,8 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    results = evaluate(load_gold_set(), kind_filter=args.kind_filter)
+    search_fn = partial(tools.search_kb, hybrid=True) if args.hybrid else tools.search_kb
+    results = evaluate(load_gold_set(), search_fn=search_fn, kind_filter=args.kind_filter)
     summary = summarize(results)
     _print_report(results, summary)
 

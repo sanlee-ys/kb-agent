@@ -19,6 +19,7 @@ uv run python scripts/index.py --rebuild  # drop and re-embed the index from scr
 # Retrieval eval (offline, no API key; needs an indexed KB):
 uv run python scripts/eval_retrieval.py                # recall@1/@3/@5 + MRR vs eval/gold_set.yaml
 uv run python scripts/eval_retrieval.py --kind-filter  # same, passing each query's kind to search_kb
+uv run python scripts/eval_retrieval.py --hybrid       # same, forcing the hybrid dense+BM25 path (ADR-010)
 uv run python scripts/eval_retrieval.py --json eval/baseline.json   # save a run for comparison
 uv run python scripts/eval_compare.py --baseline eval/baseline.json --candidate eval/candidate.json
                                           # paired A/B of two saved runs + harness-health report
@@ -89,7 +90,7 @@ projects.yaml → ingest.py → kb/*.md → index.py → chroma_db/ → tools.se
    scratch (the escape hatch). Chunk metadata carries `source` (repo-relative path),
    `kind` (`projects`/`libraries`/`notes`), and `name`.
 3. **`agent/tools.py`** exposes four tools to the model: `search_kb(query, kind?,
-   n_results?)` (semantic query over ChromaDB, optional `kind` filter) and
+   n_results?)` (query over ChromaDB, optional `kind` filter) and
    `list_projects()` (reads `projects.yaml`) are both local; the other two are
    cross-repo HTTP seams (base URLs from `projects.yaml`, not hardcoded) so the agent
    *drives* / *reads* tracked services rather than just describing them:
@@ -146,6 +147,13 @@ against — so the drift risk is visible in the report, but the fix is still by 
 - `.env` is loaded via `python-dotenv` from `REPO_ROOT / ".env"`; the Anthropic client
   is constructed with no args and reads `ANTHROPIC_API_KEY` from the environment.
 - `chroma_db/` is generated and git-ignored — never commit it; rebuild with `index.py`.
+- **`search_kb` ships dense-only.** A hybrid dense+BM25 path (RRF, k=60) is implemented and
+  live behind `tools.HYBRID_RETRIEVAL`, but the default is `False` because the gold-set A/B
+  said hybrid does not earn it: identical MRR, worse recall@1, worse on every `--kind-filter`
+  metric that moved ([ADR-010](decisions/ADR-010-hybrid-bm25-retrieval-measured-and-not-defaulted.md)).
+  Don't flip that constant without re-running **both** eval arms and amending the ADR with the
+  new numbers. `hybrid` is deliberately absent from the `TOOLS` schema — it's an experiment
+  hook, not a choice for the model.
 - The agent's system prompt forbids answering from prior knowledge about the user's
   projects: answers must come from the tools and cite the `source` file. Preserve this
   grounding behavior when editing the prompt or tools.
