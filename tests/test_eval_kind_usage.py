@@ -160,6 +160,7 @@ def test_summarize_rate_math_and_slices():
     assert overall["n"] == 4
     assert overall["kind_pass_rate"] == pytest.approx(2 / 4)
     assert overall["kind_correct_rate"] == pytest.approx(1 / 4)
+    assert overall["search_first_rate"] == pytest.approx(3 / 4)
     assert overall["other_tool"] == 1
 
     assert summary["projects"]["kind_correct_rate"] == 1.0
@@ -170,6 +171,20 @@ def test_summarize_rate_math_and_slices():
     assert summary["notes"]["kind_pass_rate"] == 0.0
     assert summary["adversarial"]["n"] == 1
     assert summary["adversarial"]["other_tool"] == 1
+    assert summary["adversarial"]["search_first_rate"] == 0.0
+
+
+def test_search_first_rate_is_the_complement_of_other_tool():
+    """The tool-selection rate and the other-tool count must never disagree."""
+    for m in summarize(evaluate(_FAKE_QUERIES, _fake_call)).values():
+        assert m["search_first_rate"] == pytest.approx((m["n"] - m["other_tool"]) / m["n"])
+
+
+def test_search_first_rate_is_an_upper_bound_on_kind_pass():
+    """A kind can only be passed on a search_kb call, so kind-pass can't exceed it."""
+    for m in summarize(evaluate(_FAKE_QUERIES, _fake_call)).values():
+        assert m["kind_pass_rate"] <= m["search_first_rate"]
+        assert m["kind_correct_rate"] <= m["kind_pass_rate"]
 
 
 def test_summarize_omits_an_empty_slice():
@@ -186,3 +201,16 @@ def test_search_kb_schema_still_enumerates_the_three_kinds():
     """The steering text names three kinds; the schema must still accept exactly those."""
     search = next(t for t in TOOLS if t["name"] == "search_kb")
     assert tuple(search["input_schema"]["properties"]["kind"]["enum"]) == KINDS
+
+
+def test_list_projects_description_points_at_search_kb_and_claims_only_the_roster():
+    """The measured fix for proj-08: list_projects must not over-claim.
+
+    It returns name+description only, so its description has to hand off questions
+    about a project's contents to search_kb. Dropping that cross-pointer regressed
+    search_kb-first from 1.000 to 0.963 in the A/B, so it is worth a guard.
+    """
+    listing = next(t for t in TOOLS if t["name"] == "list_projects")
+    description = listing["description"]
+    assert "search_kb" in description
+    assert "projects.yaml" in description

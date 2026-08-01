@@ -10,15 +10,20 @@ real KBAgent system prompt and the real TOOLS list, then inspects the FIRST
 `tool_use` block the model emits. No tools are executed and there is no loop: the
 thing under measurement is the model's opening move.
 
-Two rates are reported, overall and per kind slice:
+Three rates are reported, overall and per kind slice:
 
   - **kind-pass rate**  — the first tool call is `search_kb` and it carries a
     `kind` argument (right or wrong).
   - **kind-correct rate** — that `kind` equals the gold query's `kind`.
+  - **search_kb-first rate** — the opening move was `search_kb` at all. This
+    isolates *tool selection* from *kind steering*: kind-pass can only ever be as
+    high as this, so a shortfall here is a different defect with a different fix
+    (tool descriptions) than a shortfall between the two (the `kind` steering text).
 
 A first call to some *other* tool (e.g. `list_projects`) counts as kind-not-passed
-and is recorded distinctly in the JSON as ``other_tool``, so a rate drop caused by
-tool selection is auditable rather than invisible.
+and is recorded distinctly in the JSON as ``other_tool`` (and, as a rate, as the
+complement of ``search_first_rate``), so a rate drop caused by tool selection is
+auditable rather than invisible.
 
 This is a *model-behavior* measurement, deliberately separate from retrieval
 quality: it says nothing about whether the retrieved chunks were right. Pair it
@@ -153,11 +158,13 @@ def evaluate(queries: list[dict], call_fn: Callable[[str], object]) -> list[dict
 
 def _rates(results: list[dict]) -> dict:
     n = len(results)
+    other = sum(1 for r in results if r["other_tool"])
     return {
         "n": n,
         "kind_pass_rate": sum(1 for r in results if r["kind_passed"]) / n,
         "kind_correct_rate": sum(1 for r in results if r["kind_correct"]) / n,
-        "other_tool": sum(1 for r in results if r["other_tool"]),
+        "search_first_rate": (n - other) / n,
+        "other_tool": other,
     }
 
 
@@ -183,6 +190,7 @@ def _print_report(results: list[dict], summary: dict[str, dict], model: str) -> 
     table.add_column("n", justify="right")
     table.add_column("kind pass", justify="right")
     table.add_column("kind correct", justify="right")
+    table.add_column("search_kb first", justify="right")
     table.add_column("other tool", justify="right")
     for name, m in summary.items():
         table.add_row(
@@ -190,6 +198,7 @@ def _print_report(results: list[dict], summary: dict[str, dict], model: str) -> 
             str(m["n"]),
             f"{m['kind_pass_rate']:.3f}",
             f"{m['kind_correct_rate']:.3f}",
+            f"{m['search_first_rate']:.3f}",
             str(m["other_tool"]),
         )
     console.print(table)
