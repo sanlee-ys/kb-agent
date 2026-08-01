@@ -24,6 +24,10 @@ uv run python scripts/eval_retrieval.py --json eval/baseline.json   # save a run
 uv run python scripts/eval_compare.py --baseline eval/baseline.json --candidate eval/candidate.json
                                           # paired A/B of two saved runs + harness-health report
 
+# Kind-usage eval (needs an API key — 27 model calls per run; no index needed):
+uv run python scripts/eval_kind_usage.py   # how often the model passes `kind` to search_kb
+uv run python scripts/eval_kind_usage.py --json eval/kind-run.json
+
 # Run the agent:
 uv run python app.py                      # Gradio chat UI at http://127.0.0.1:7860
 uv run python agent/agent.py              # CLI chat loop
