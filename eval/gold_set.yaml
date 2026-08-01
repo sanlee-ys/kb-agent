@@ -132,6 +132,12 @@ queries:
     expected_sources:
       - learning-notes/15-semantic-versioning.md
 
+  # note-06 label ruled correct as `notes` by San, 2026-08-02, after the
+  # kind-usage eval showed the model picking kind=libraries in 18/18 runs
+  # (uv reads as a packaging tool; no kb/libraries/uv.md stub exists, so that
+  # guess has no correct landing spot). Accepted as an explained miss on the
+  # kind-correct axis: relabeling after seeing the result would be tuning the
+  # answer key to the outcome. Do not relabel or add a uv stub to "fix" this.
   - id: note-06
     kind: notes
     query: "why use uv and a lockfile for reproducible Python environments"
