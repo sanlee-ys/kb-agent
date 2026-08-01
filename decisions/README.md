@@ -42,7 +42,7 @@ correctly from below. What was missing was the local tier it should have landed 
 | **`CLAUDE.md`** | The operative instruction an agent must follow. A decision recorded here should leave its *rule* in `CLAUDE.md` and cross-link — the ADR is the "why," `CLAUDE.md` is the "do this" |
 | **architecture `decisions/`** | Anything binding two or more repos, subject to `SYS-001`'s promotion bar |
 
-## Still to migrate
+## Migration history (the "Still to migrate" backlog, now empty)
 
 Recorded so the remainder is a list rather than a vague intention. Each of these is a real
 decision currently living in prose:
