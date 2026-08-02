@@ -116,18 +116,30 @@ run, and SYS-017 puts paid legs on owner-triggered lanes or nowhere.
 
 ### What the reconstructed corpus actually measures
 
-Verified locally on 2026-08-02 by running the CI recipe by hand — fresh `--depth 1` clone into a
-temp dir, `KB_AGENT_NOTES_DIRS` pointed at it, index built, both arms run:
+Measured on 2026-08-02, first by running the CI recipe by hand — fresh `--depth 1` clone into a
+temp dir, `KB_AGENT_NOTES_DIRS` pointed at it, index built, both arms run — and then confirmed by
+the CI leg itself:
 
 | Arm | n | recall@1 | recall@3 | recall@5 | MRR |
 |---|---|---|---|---|---|
 | unfiltered | 27 | 0.741 | 0.852 | 0.926 | 0.813 |
 | `--kind-filter` | 27 | 0.963 | 1.000 | 1.000 | 0.981 |
 
-**This is a local reconstruction of the CI recipe, not a CI run, and it is not a baseline.** It is
-recorded to show the reconstruction produces a complete, plausible measurement rather than a hole —
-both misses are `projects`-kind queries losing to notes chunks, and every `notes` query the absent
-corpus would have zeroed now resolves at rank 1 or 2.
+**The first real CI run reproduced both arms exactly** — every figure above, to three decimals,
+over an identical 269 chunks from 44 files
+([run 30772268815](https://github.com/sanlee-ys/kb-agent/actions/runs/30772268815), Ubuntu, against
+Windows locally). That is a stronger provenance signal than either run alone: the reconstruction is
+deterministic across operating systems, so the corpus really is defined by version control and not
+by the machine.
+
+**It is still not a baseline, and none of these numbers is a floor.** Two identical runs of the
+same corpus do not establish a noise band — they establish that this corpus is stable, which is a
+different claim. The band that tier 2 needs comes from runs spread over real changes to `kb/` and
+to `learning-notes`, and those accumulate from here.
+
+The reconstruction produces a complete measurement rather than a hole: both misses are
+`projects`-kind queries losing to notes chunks, and every `notes` query the absent corpus would
+have zeroed now resolves at rank 1 or 2.
 
 It also makes SYS-017's point concretely: the index is **269 chunks over 44 files**, against the
 **325 chunks** the README's 2026-07-17 figures were measured on. The workstation corpus was larger
