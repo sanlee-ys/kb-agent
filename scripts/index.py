@@ -15,14 +15,22 @@ changed are re-embedded, and chunks from deleted/renamed files (or removed notes
 are dropped — so the collection ends up identical to a full rebuild, without
 re-embedding everything. Pass --rebuild to drop and re-embed from scratch.
 
+External notes directories come from ``notes_dirs`` in projects.yaml, which holds
+absolute workstation paths. ``KB_AGENT_NOTES_DIRS`` overrides that list so any
+other environment — CI above all — can reconstruct the same corpus from its own
+checkout (kb-agent/ADR-012). A configured directory that does not exist is a hard
+error, never a skip: the index would otherwise come out quietly incomplete.
+
 Usage:
     uv run python scripts/index.py             # incremental update
     uv run python scripts/index.py --rebuild   # drop and re-embed everything
+    KB_AGENT_NOTES_DIRS=/path/to/learning-notes uv run python scripts/index.py
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 import chromadb
@@ -35,6 +43,13 @@ KB_DIR = REPO_ROOT / "kb"
 CHROMA_DIR = REPO_ROOT / "chroma_db"
 COLLECTION_NAME = "knowledge_base"
 NOTES_API_PROJECT = "notes-api"
+
+# Overrides projects.yaml's `notes_dirs` with an os.pathsep-separated list. This is
+# what makes the eval corpus reconstructible outside the author's workstation — CI
+# clones learning-notes and points here (kb-agent/ADR-012, system/SYS-017 §3). Set
+# it to the empty string to index no external notes at all; unset falls back to
+# projects.yaml.
+NOTES_DIRS_ENV = "KB_AGENT_NOTES_DIRS"
 
 # Roughly target this many characters per chunk before starting a new one.
 MAX_CHUNK_CHARS = 1200
@@ -109,17 +124,31 @@ def is_note_scaffolding(md_file: Path, notes_dir: Path) -> bool:
     return relative.name.lower() in SCAFFOLDING_FILENAMES
 
 
-def notes_dirs() -> list[Path]:
+def notes_dirs() -> tuple[list[Path], str]:
     """External directories of hand-written notes to index alongside kb/.
 
-    Configured under ``notes_dirs`` in projects.yaml. These live outside this
-    repo (and outside git) on purpose; we only read them at index time.
+    Configured under ``notes_dirs`` in projects.yaml, whose values are absolute
+    paths on the author's workstation. ``KB_AGENT_NOTES_DIRS`` overrides that
+    list with an ``os.pathsep``-separated one, which is how any environment that
+    is not that workstation — CI above all — reconstructs the corpus from a
+    checkout of its own (kb-agent/ADR-012). Setting it to the empty string is a
+    real answer meaning "index no external notes"; leaving it unset falls back
+    to projects.yaml.
+
+    Returns:
+        A ``(dirs, origin)`` tuple. ``origin`` names where the list came from so
+        a missing directory can tell the caller which knob to turn.
     """
+    override = os.environ.get(NOTES_DIRS_ENV)
+    if override is not None:
+        dirs = [Path(p) for p in override.split(os.pathsep) if p.strip()]
+        return dirs, f"the {NOTES_DIRS_ENV} environment variable"
+
     projects_file = REPO_ROOT / "projects.yaml"
     if not projects_file.exists():
-        return []
+        return [], "projects.yaml (absent)"
     config = yaml.safe_load(projects_file.read_text(encoding="utf-8")) or {}
-    return [Path(p) for p in config.get("notes_dirs", [])]
+    return [Path(p) for p in config.get("notes_dirs", [])], "projects.yaml `notes_dirs`"
 
 
 def _notes_api_endpoint() -> str | None:
@@ -221,14 +250,22 @@ def collect_documents() -> tuple[list[str], list[dict], list[str]]:
     """Build the parallel arrays ChromaDB's add() expects, one entry per chunk.
 
     Walks the in-repo kb/ tree (kind = parent folder, e.g. ``projects`` /
-    ``libraries``) plus any external ``notes_dirs`` from projects.yaml
+    ``libraries``) plus every external notes directory from ``notes_dirs()``
     (kind = ``notes``) and live notes from the notes-api service
     (kind = ``notes``). Repo scaffolding inside a notes_dir (README/CLAUDE.md,
     generated output — see is_note_scaffolding) is excluded from the notes
     sweep. Each metadata dict carries ``source``, ``kind``, and ``name``.
 
+    A note's ``source`` is ``<notes_dir name>/<filename>``, so the *directory
+    name* is part of the wire format the gold set matches against — a corpus
+    cloned as ``learning-notes/`` and one cloned as ``notes/`` are not
+    interchangeable.
+
     Returns:
         A ``(documents, metadatas, ids)`` tuple of equal-length lists.
+
+    Raises:
+        FileNotFoundError: if a configured notes directory does not exist.
     """
     documents: list[str] = []
     metadatas: list[dict] = []
@@ -244,10 +281,28 @@ def collect_documents() -> tuple[list[str], list[dict], list[str]]:
             ids,
         )
 
-    for notes_dir in notes_dirs():
+    configured_notes_dirs, origin = notes_dirs()
+    for notes_dir in configured_notes_dirs:
+        # Hard error, not a skip. A configured-but-absent corpus produces an index
+        # that is quietly missing 12 of the gold set's 27 queries' sources, so the
+        # eval scores them as retrieval misses while every step stays green — the
+        # exact "a gate that cannot fail is theater" failure system/SYS-017 names,
+        # and the reason corpus provenance is that decision's tier-1 entry
+        # condition. If the notes really should not be indexed here, say so
+        # explicitly rather than by omission.
         if not notes_dir.exists():
-            console.print(f"[yellow]notes_dir not found, skipping: {notes_dir}[/yellow]")
-            continue
+            # ASCII only: this surfaces on a Windows console (cp1252) as well as in
+            # CI, and the same rule is why scripts/lint_decisions.py avoids Unicode.
+            raise FileNotFoundError(
+                f"notes_dir does not exist: {notes_dir}\n"
+                f"It came from {origin}. The index would silently omit this corpus, "
+                f"and any eval run against it would report missing documents as bad "
+                f"retrieval (kb-agent/ADR-012, system/SYS-017 section 3).\n"
+                f"Fix by checking the corpus out at that path, or point "
+                f"{NOTES_DIRS_ENV} at where it actually lives. To index no external "
+                f'notes at all, set {NOTES_DIRS_ENV}="" - an empty value is an '
+                f"answer; an absent directory is not."
+            )
         skipped = 0
         for md_file in sorted(notes_dir.rglob("*.md")):
             if is_note_scaffolding(md_file, notes_dir):

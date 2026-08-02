@@ -6,12 +6,25 @@ manual smoke run.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import httpx
+import pytest
 
 import scripts.index as index
-from scripts.index import MAX_CHUNK_CHARS, chunk_markdown, plan_index_update
+from scripts.index import (
+    MAX_CHUNK_CHARS,
+    NOTES_DIRS_ENV,
+    chunk_markdown,
+    plan_index_update,
+)
+
+
+@pytest.fixture(autouse=True)
+def _no_ambient_notes_override(monkeypatch):
+    """Never let a real KB_AGENT_NOTES_DIRS leak into these tests."""
+    monkeypatch.delenv(NOTES_DIRS_ENV, raising=False)
 
 
 def test_chunk_markdown_splits_on_headings():
@@ -100,6 +113,103 @@ def test_collect_documents_filters_notes_scaffolding(tmp_path, monkeypatch):
 
     assert [m["source"] for m in metadatas] == ["my-notes/01-real-note.md"]
     assert all(m["kind"] == "notes" for m in metadatas)
+
+
+# --- notes_dirs: the corpus-provenance seam (ADR-012) -----------------------
+
+
+def test_notes_dirs_reads_projects_yaml(tmp_path, monkeypatch):
+    (tmp_path / "projects.yaml").write_text(
+        f"projects: []\nnotes_dirs:\n  - {tmp_path / 'a'}\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(index, "REPO_ROOT", tmp_path)
+
+    dirs, origin = index.notes_dirs()
+    assert dirs == [tmp_path / "a"]
+    assert "projects.yaml" in origin
+
+
+def test_notes_dirs_missing_projects_yaml(tmp_path, monkeypatch):
+    monkeypatch.setattr(index, "REPO_ROOT", tmp_path)
+    dirs, _ = index.notes_dirs()
+    assert dirs == []
+
+
+def test_notes_dirs_env_overrides_projects_yaml(tmp_path, monkeypatch):
+    """The override wins outright — it does not merge with projects.yaml."""
+    (tmp_path / "projects.yaml").write_text(
+        "projects: []\nnotes_dirs:\n  - C:\\Users\\someone\\code\\learning-notes\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(index, "REPO_ROOT", tmp_path)
+    monkeypatch.setenv(NOTES_DIRS_ENV, str(tmp_path / "clone"))
+
+    dirs, origin = index.notes_dirs()
+    assert dirs == [tmp_path / "clone"]
+    assert NOTES_DIRS_ENV in origin
+
+
+def test_notes_dirs_env_accepts_several_paths(tmp_path, monkeypatch):
+    monkeypatch.setattr(index, "REPO_ROOT", tmp_path)
+    monkeypatch.setenv(
+        NOTES_DIRS_ENV, os.pathsep.join([str(tmp_path / "one"), str(tmp_path / "two")])
+    )
+
+    dirs, _ = index.notes_dirs()
+    assert dirs == [tmp_path / "one", tmp_path / "two"]
+
+
+def test_notes_dirs_empty_env_means_no_notes(tmp_path, monkeypatch):
+    """An empty override is a real answer ('index no notes'), not a fallback."""
+    (tmp_path / "projects.yaml").write_text(
+        f"projects: []\nnotes_dirs:\n  - {tmp_path / 'a'}\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(index, "REPO_ROOT", tmp_path)
+    monkeypatch.setenv(NOTES_DIRS_ENV, "")
+
+    dirs, origin = index.notes_dirs()
+    assert dirs == []
+    assert NOTES_DIRS_ENV in origin
+
+
+def test_collect_documents_raises_on_missing_notes_dir(tmp_path, monkeypatch):
+    """A configured-but-absent corpus fails the run; it is never skipped.
+
+    This is the liveness clause: skipping produced an index quietly missing the
+    notes corpus, which an eval would then score as bad retrieval while CI
+    stayed green (system/SYS-017 §3, kb-agent/ADR-012).
+    """
+    kb = tmp_path / "kb"
+    kb.mkdir()
+    (kb / "projects").mkdir()
+    (kb / "projects" / "foo.md").write_text("# Foo\nhello", encoding="utf-8")
+    monkeypatch.setattr(index, "KB_DIR", kb)
+    monkeypatch.setattr(index, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(index, "collect_notes_from_api", lambda: ([], [], []))
+    monkeypatch.setenv(NOTES_DIRS_ENV, str(tmp_path / "not-there"))
+
+    with pytest.raises(FileNotFoundError) as excinfo:
+        index.collect_documents()
+
+    message = str(excinfo.value)
+    assert "not-there" in message
+    # The error must name the knob that set the path, or the reader has to guess
+    # between projects.yaml and the environment.
+    assert NOTES_DIRS_ENV in message
+
+
+def test_collect_documents_missing_notes_dir_from_yaml_names_yaml(tmp_path, monkeypatch):
+    kb = tmp_path / "kb"
+    kb.mkdir()
+    (tmp_path / "projects.yaml").write_text(
+        f"projects: []\nnotes_dirs:\n  - {tmp_path / 'gone'}\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(index, "KB_DIR", kb)
+    monkeypatch.setattr(index, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(index, "collect_notes_from_api", lambda: ([], [], []))
+
+    with pytest.raises(FileNotFoundError, match="projects.yaml"):
+        index.collect_documents()
 
 
 # --- plan_index_update (incremental diff) ---
