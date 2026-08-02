@@ -25,7 +25,7 @@ ephemerally with `--with` rather than adding it.)
 | `agent/agent.py` | **0%** | the entire `KBAgent`: the `ask()` tool-use loop, the `MAX_TOOL_ITERATIONS` cap, `_final_text()` |
 | `scripts/ingest.py` | 59% | `generate_project_stub` / `generate_library_stub` (the client is **injected** → mockable), `main()`, the missing-`projects.yaml` exit |
 | `agent/tools.py` | 70% | `search_kb` happy path + the empty-`kind` hint; `_get_collection` collection-missing branch; `classify_snippet` timeout/`HTTPError` branch; `_project_endpoint` missing-file |
-| `scripts/index.py` | 71% | `notes_dirs()` when `projects.yaml` has a `notes_dirs:` list; the notes walk + skip-missing in `collect_documents`; `main()` empty-docs early return |
+| `scripts/index.py` | 71% | ~~`notes_dirs()` when `projects.yaml` has a `notes_dirs:` list; the notes walk + skip-missing in `collect_documents`~~; `main()` empty-docs early return — **the notes half closed 2026-08-02 by [ADR-012](../../decisions/ADR-012-reconstruct-the-notes-corpus-in-ci.md): the skip-missing branch was deleted (an absent corpus now raises) and `notes_dirs()` plus both error paths are covered** |
 | `app.py` | excluded | Gradio UI — runtime-only; **leave it** |
 
 ## The work (risk-weighted, not line-weighted)

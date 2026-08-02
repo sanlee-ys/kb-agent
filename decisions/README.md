@@ -17,6 +17,7 @@ cross-repo decisions get a `SYS-NNN` in the architecture repo, repo-local ones l
 | [ADR-009](ADR-009-treehouse-warm-worktree-pool.md) | A warm worktree pool (`treehouse`, `max_trees = 4`) for **this repo only** — the ~458 MB venv and the re-embed make cold checkouts expensive here and nowhere else | Accepted |
 | [ADR-010](ADR-010-hybrid-bm25-retrieval-measured-and-not-defaulted.md) | Build hybrid BM25+dense retrieval, measure it against the gold set, and keep **dense-only** as the default — the negative result the v2 kickoff asked for | Accepted |
 | [ADR-011](ADR-011-incremental-index-by-default.md) | Update the index incrementally by default; `--rebuild` is the escape hatch — split out of ADR-007 on 2026-08-02 | Accepted |
+| [ADR-012](ADR-012-reconstruct-the-notes-corpus-in-ci.md) | Reconstruct the notes corpus in CI from a clone (`KB_AGENT_NOTES_DIRS`), fail hard on an absent one, and run the retrieval eval as a **reporting** step — `system/SYS-017` tier 1, no floors | Accepted |
 
 ## Why this tier was missing, and what it is not
 

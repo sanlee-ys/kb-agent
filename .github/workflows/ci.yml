@@ -64,3 +64,47 @@ jobs:
 
       - name: Test
         run: uv run pytest
+
+      # ---- Retrieval eval (system/SYS-017 tier 1) --------------------------
+      # The eval RUNS and REPORTS on every push and pull request. It does NOT gate
+      # the merge, and there is deliberately no floors file: SYS-017's rollout
+      # found no existing retrieval number floor-eligible, because every published
+      # figure (including both arms of kb-agent/ADR-010's A/B) was measured on the
+      # author's workstation against a corpus CI could not reconstruct. The
+      # eligible runs are the ones these steps produce — plural, since a floor
+      # needs a run-to-run noise band under it. Tier 2 is a later, separate job.
+      #
+      # Tier 1's entry condition is corpus provenance: CI must rebuild every input
+      # from version control. 12 of the gold set's 27 queries expect sources under
+      # learning-notes/, a separate public repo, so it is cloned here and the index
+      # is pointed at the clone (kb-agent/ADR-012). Nothing paid or non-deterministic
+      # runs on this leg — retrieval embeds locally with all-MiniLM-L6-v2, which the
+      # cache above already covers. scripts/eval_kind_usage.py spends API budget and
+      # is deliberately absent; it stays owner-triggered.
+      #
+      # The clone's DIRECTORY NAME is load-bearing: index.py records a note's source
+      # as "<dirname>/<file>.md" and the gold set spells them "learning-notes/...",
+      # so cloning to any other name scores all 12 as misses.
+      - name: Clone the notes corpus (learning-notes)
+        run: |
+          git clone --depth 1 https://github.com/sanlee-ys/learning-notes.git \
+            "${{ runner.temp }}/learning-notes"
+
+      # A configured-but-absent notes dir is a hard error in index.py, so this step
+      # fails loudly if the clone did not land rather than building a short index
+      # that the eval below would report as bad retrieval.
+      - name: Build the index
+        env:
+          KB_AGENT_NOTES_DIRS: ${{ runner.temp }}/learning-notes
+        run: uv run python scripts/index.py
+
+      # Both arms. The unfiltered arm is the headline number; the --kind-filter arm
+      # exercises search_kb's metadata `where` path, which the unfiltered arm cannot
+      # see break. Neither asserts a threshold — a non-zero exit here means the
+      # harness itself failed (unindexed KB, non-success observation), not that
+      # retrieval got worse.
+      - name: Retrieval eval — unfiltered (report only)
+        run: uv run python scripts/eval_retrieval.py
+
+      - name: Retrieval eval — kind filter (report only)
+        run: uv run python scripts/eval_retrieval.py --kind-filter

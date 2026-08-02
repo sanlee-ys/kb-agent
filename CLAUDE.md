@@ -153,6 +153,21 @@ against — so the drift risk is visible in the report, but the fix is still by 
 - `.env` is loaded via `python-dotenv` from `REPO_ROOT / ".env"`; the Anthropic client
   is constructed with no args and reads `ANTHROPIC_API_KEY` from the environment.
 - `chroma_db/` is generated and git-ignored — never commit it; rebuild with `index.py`.
+- **The notes corpus must be reconstructible, and a missing one is an error.** `projects.yaml`'s
+  `notes_dirs` holds absolute workstation paths; `KB_AGENT_NOTES_DIRS` (an `os.pathsep`-separated
+  list) overrides it outright so any other environment can rebuild the same corpus from its own
+  checkout. `index.py` **raises** on a configured directory that doesn't exist — never skips it —
+  because a short index scores the gold set's 12 `learning-notes` queries as retrieval misses while
+  every step stays green. If notes really shouldn't be indexed, say so with `KB_AGENT_NOTES_DIRS=""`
+  rather than by omission. A note's `source` is `<dir name>/<file>.md`, so **the directory must be
+  named `learning-notes`** or the gold set won't match it
+  ([ADR-012](decisions/ADR-012-reconstruct-the-notes-corpus-in-ci.md), `system/SYS-017` §3).
+- **CI runs the retrieval eval, and does not gate on it** (`SYS-017` tier 1). `ci.yml` clones
+  `learning-notes`, builds the index against it, and runs both `eval_retrieval.py` arms as
+  **reporting** steps — there is no floors file and no threshold, so a non-zero exit there means the
+  harness broke, not that retrieval regressed. Don't add a floor from a number measured on the
+  workstation: floors need several CI-measured runs for a noise band (that's tier 2, and it's a
+  separate job). `eval_kind_usage.py` spends API budget and stays out of PR CI.
 - **`search_kb` ships dense-only.** A hybrid dense+BM25 path (RRF, k=60) is implemented and
   live behind `tools.HYBRID_RETRIEVAL`, but the default is `False` because the gold-set A/B
   said hybrid does not earn it: identical MRR, worse recall@1, worse on every `--kind-filter`

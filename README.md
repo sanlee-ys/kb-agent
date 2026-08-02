@@ -182,6 +182,17 @@ misses were cross-kind crowding — indexed non-content files outranking the rig
 which turns "should the notes ingest filter out repo scaffolding?" from a hunch into a
 measurable next change.
 
+Those are **dated workstation measurements**, taken against a corpus assembled from a local
+absolute path that CI cannot rebuild — so they are reports, not thresholds, and none of them
+is eligible to become a floor. Since
+[ADR-012](decisions/ADR-012-reconstruct-the-notes-corpus-in-ci.md) CI reconstructs the corpus
+from version control (a shallow clone of `learning-notes`, pointed at by `KB_AGENT_NOTES_DIRS`)
+and runs both arms on every push and pull request as a **reporting** step. It does not gate the
+merge on the value: per
+[`system/SYS-017`](https://github.com/sanlee-ys/architecture/blob/main/decisions/SYS-017-evals-as-ci.md)
+a floor needs several CI-measured runs to sit above their noise, and those runs are only now
+starting to accumulate.
+
 ## Observability
 
 A tool-use loop is a distributed system: one `ask()` fans out into several model
