@@ -203,13 +203,9 @@ def test_notes_sources_exist_when_the_clone_is_present(queries, notes_clone):
     A machine without the clone skips: a test that fails for lacking a sibling
     checkout is worse than no test.
 
-    **Today this skips in CI too, so it effectively runs on the workstation
-    only.** ci.yml clones learning-notes and sets KB_AGENT_NOTES_DIRS, but both
-    happen in later steps than `uv run pytest`, and the env var is scoped to the
-    index step rather than the job — so at test time `notes_dirs()` falls back to
-    projects.yaml's workstation path, which does not exist on the runner.
-    Wiring this into CI means reordering or rescoping those steps, which is a
-    change to the eval leg's shape and not this test's to make.
+    ci.yml clones learning-notes and exports KB_AGENT_NOTES_DIRS before the
+    `Test` step, so this runs in CI; the skip path is for a machine that
+    genuinely has no clone.
     """
     if notes_clone is None:
         pytest.skip("no learning-notes clone configured; format-check only")
