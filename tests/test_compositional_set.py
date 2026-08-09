@@ -200,9 +200,16 @@ def test_kb_sources_exist_and_notes_are_well_formed(queries):
 def test_notes_sources_exist_when_the_clone_is_present(queries, notes_clone):
     """The half the gold-set test cannot do — run only where it is runnable.
 
-    CI clones learning-notes and points KB_AGENT_NOTES_DIRS at it, so this does
-    run there. A workstation without the clone skips: a test that fails for
-    lacking a sibling checkout is worse than no test.
+    A machine without the clone skips: a test that fails for lacking a sibling
+    checkout is worse than no test.
+
+    **Today this skips in CI too, so it effectively runs on the workstation
+    only.** ci.yml clones learning-notes and sets KB_AGENT_NOTES_DIRS, but both
+    happen in later steps than `uv run pytest`, and the env var is scoped to the
+    index step rather than the job — so at test time `notes_dirs()` falls back to
+    projects.yaml's workstation path, which does not exist on the runner.
+    Wiring this into CI means reordering or rescoping those steps, which is a
+    change to the eval leg's shape and not this test's to make.
     """
     if notes_clone is None:
         pytest.skip("no learning-notes clone configured; format-check only")
