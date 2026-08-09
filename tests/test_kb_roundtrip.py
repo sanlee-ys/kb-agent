@@ -26,6 +26,21 @@ import pytest
 
 import agent.tools as tools
 import scripts.index as index
+from scripts.index import NOTES_DIRS_ENV
+
+
+@pytest.fixture(autouse=True)
+def _no_ambient_notes_override(monkeypatch):
+    """Never let a real KB_AGENT_NOTES_DIRS leak into these tests.
+
+    Patching index.REPO_ROOT to tmp_path is *not* enough to seal off the temp
+    corpus: notes_dirs() checks the environment first and returns from that
+    branch without ever consulting REPO_ROOT. With the variable set (as CI now
+    sets it job-wide), every index.main([]) here would sweep the whole real
+    notes corpus into the temp store -- slow, and it puts unrelated documents
+    in front of the ranking assertions.
+    """
+    monkeypatch.delenv(NOTES_DIRS_ENV, raising=False)
 
 
 def _seed_kb(kb_dir) -> None:
