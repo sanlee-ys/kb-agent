@@ -21,7 +21,8 @@ between sessions. It was evaluated as a possible replacement for
 **The cost of a cold worktree is repo-specific, and almost every repo here is
 cheap.** Measured the same day: `notes-api` creates its virtualenv and installs
 44 packages in **34 ms** — on a Raspberry Pi. `defense-news-classifier`,
-`career` and `portfolio` are the same shape. A warm pool saves them nothing.
+`portfolio` and the private repos are the same shape. A warm pool saves them
+nothing.
 
 **This repo is the exception**, for two reasons already recorded in
 `CLAUDE.md`:
