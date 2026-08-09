@@ -62,6 +62,38 @@ jobs:
       - name: ADRs list their downstream surfaces
         run: uv run python scripts/lint_decisions.py
 
+      # ---- The notes corpus (kb-agent/ADR-012) -----------------------------
+      # Reconstructed from version control here, ahead of BOTH consumers below.
+      #
+      # It sits above `Test` rather than next to the eval leg because the suite
+      # needs it too: tests/test_compositional_set.py's notes-source check resolves
+      # the corpus exactly the way index.py does, so while the clone landed after
+      # pytest that test skipped on every CI run — a gated invariant that only ever
+      # ran on the author's workstation. It still runs after lint and the contract
+      # guards, which are cheaper and should keep failing first.
+      #
+      # The DIRECTORY NAME is load-bearing: index.py records a note's source as
+      # "<dirname>/<file>.md", and both the gold set and the compositional set spell
+      # them "learning-notes/...". Cloning to any other name scores every one of
+      # those as a miss, and sends the test back to skipping.
+      #
+      # KB_AGENT_NOTES_DIRS is exported here, from the same shell variable that
+      # names the clone destination, instead of being repeated as a step-level
+      # `env:` on each consumer. The pointer and the destination then cannot
+      # disagree — and a disagreement is the quiet kind: index.py errors on an
+      # absent dir, but the test just goes back to skipping.
+      - name: Clone the notes corpus (learning-notes)
+        run: |
+          notes="${{ runner.temp }}/learning-notes"
+          git clone --depth 1 https://github.com/sanlee-ys/learning-notes.git "$notes"
+          echo "KB_AGENT_NOTES_DIRS=$notes" >> "$GITHUB_ENV"
+
+      # Reads KB_AGENT_NOTES_DIRS from the step above, which is what lets
+      # test_compositional_set.py check that every learning-notes/ path the
+      # compositional corpus names is a real file. tests/test_index.py clears the
+      # variable in an autouse fixture; tests/test_kb_roundtrip.py does not, so its
+      # temp-corpus index builds sweep the clone as well — measured harmless (183
+      # passed with and without), at the cost of a few seconds of extra embedding.
       - name: Test
         run: uv run pytest
 
@@ -75,27 +107,17 @@ jobs:
       # needs a run-to-run noise band under it. Tier 2 is a later, separate job.
       #
       # Tier 1's entry condition is corpus provenance: CI must rebuild every input
-      # from version control. 12 of the gold set's 27 queries expect sources under
-      # learning-notes/, a separate public repo, so it is cloned here and the index
-      # is pointed at the clone (kb-agent/ADR-012). Nothing paid or non-deterministic
-      # runs on this leg — retrieval embeds locally with all-MiniLM-L6-v2, which the
-      # cache above already covers. scripts/eval_kind_usage.py spends API budget and
-      # is deliberately absent; it stays owner-triggered.
+      # from version control, which is what the clone above is for — 12 of the gold
+      # set's 27 queries expect sources under learning-notes/. Nothing paid or
+      # non-deterministic runs on this leg: retrieval embeds locally with
+      # all-MiniLM-L6-v2, which the cache above already covers.
+      # scripts/eval_kind_usage.py spends API budget and is deliberately absent; it
+      # stays owner-triggered.
       #
-      # The clone's DIRECTORY NAME is load-bearing: index.py records a note's source
-      # as "<dirname>/<file>.md" and the gold set spells them "learning-notes/...",
-      # so cloning to any other name scores all 12 as misses.
-      - name: Clone the notes corpus (learning-notes)
-        run: |
-          git clone --depth 1 https://github.com/sanlee-ys/learning-notes.git \
-            "${{ runner.temp }}/learning-notes"
-
       # A configured-but-absent notes dir is a hard error in index.py, so this step
       # fails loudly if the clone did not land rather than building a short index
       # that the eval below would report as bad retrieval.
       - name: Build the index
-        env:
-          KB_AGENT_NOTES_DIRS: ${{ runner.temp }}/learning-notes
         run: uv run python scripts/index.py
 
       # Both arms. The unfiltered arm is the headline number; the --kind-filter arm
