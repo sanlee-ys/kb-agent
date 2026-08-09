@@ -1,0 +1,791 @@
+# Compositional query set — the instrument for loop-level, multi-source retrieval.
+#
+# ============================================================================
+# 1. Why this file exists, and why it is NOT eval/gold_set.yaml
+# ============================================================================
+#
+# `eval/gold_set.yaml` is frozen at 27 queries (ADR-004), and **26 of those 27
+# have exactly one expected source**. `proj-08` is the only two-source entry.
+# A single dense `search_kb` call answers a single-hop lookup by construction,
+# so any candidate retrieval design that spends more calls to answer the same
+# question can only lose on that corpus — there is nothing there for extra
+# retrieval work to recover. Kind-filtered dense retrieval already sits at
+# recall@1 0.963 / recall@5 1.000 on it (ADR-010), leaving a headroom of one to
+# two queries.
+#
+# This file is the separate set ADR-004 leaves open ("Any later
+# end-answer-quality eval", ADR-004 Downstream surfaces) and that ADR-010's
+# alternatives table requires instead of enlarging the settled 27: growing the
+# gold set to rescue a candidate is refused there by name. **Nothing in this
+# file replaces, extends, or edits `eval/gold_set.yaml`.** The 27 stay frozen.
+#
+# The defining property here is the mirror image of the gold set's: **every
+# query's answer requires evidence from two or more source files, spanning two
+# or more `kind` slices.** A query that one file answers does not belong in
+# this corpus and was dropped rather than reworded into it.
+#
+# ============================================================================
+# 2. Pre-registration — read this before believing any number scored against it
+# ============================================================================
+#
+# **No retrieval arm has been run against this corpus.** Not the shipped loop,
+# not any candidate, not `eval_retrieval.py`, not `eval_kind_usage.py`, not a
+# graph. No baseline failure list existed when these queries were written, so
+# no query here can have been selected because some arm fails it. That is the
+# whole point: the easiest way to manufacture a win for a multi-call retrieval
+# design is to author queries after seeing what a single call misses, and this
+# file is committed before any arm exists so that a later reader can check the
+# order in git history rather than take it on trust.
+#
+# The independence rule from `gold_set.yaml:18-20` applies here unchanged, and
+# is restated rather than referenced so it cannot be lost:
+#
+#     Do not tune queries to what the current retriever returns — the gold set
+#     is what SHOULD come back, and it must stay independent of any retriever
+#     under test.
+#
+# If a later change to this file is proposed *after* an arm has been scored,
+# the burden is on that change to explain why it is not tuning. Adding a query
+# because an arm failed it, or dropping one because an arm failed it, is the
+# same move in two directions and neither is allowed.
+#
+# ============================================================================
+# 3. Provenance (SYS-017 §3 — corpus provenance is the tier-1 entry condition)
+# ============================================================================
+#
+# - **Authored:** 2026-08-09, by Claude (Opus 5) running as an agent in this
+#   repo, in a single pass, before any arm existed. San's per-entry review
+#   before merge is the hand-label pass, the same arrangement `gold_set.yaml`
+#   records for the 27.
+# - **How each query was constructed:** every one of the 44 indexed source
+#   files was read in full first — the 14 committed files under `kb/` and the
+#   30 files the `learning-notes` corpus contributes (29 numbered notes plus
+#   `glossary.md`; `README.md` and `CLAUDE.md` there are excluded by
+#   `is_note_scaffolding` in `scripts/index.py`). Queries were then written
+#   *from* that content, by locating a fact in file A that is genuinely absent
+#   from file B and vice versa, and asking a question that needs both. The
+#   per-source inline comment on every entry below names what that source and
+#   only that source contributes; that comment is the justification, and an
+#   entry whose comment could not be written was dropped.
+# - **What was rejected, and why it is reported rather than padded away:**
+#   roughly 45 candidates were drafted and dropped to reach these 61. Two
+#   reasons dominate, and both are properties of this KB rather than of the
+#   drafting. First, **the learning notes each carry an "In my project"
+#   section**, so a large share of concept→instance pairings collapse to a
+#   single source: the note already states the project fact. Notes 12, 13, 14,
+#   17 (on DTOs), 19 (on the port), 20, 21 and 28 each swallowed at least one
+#   otherwise-good candidate this way, and note 03 swallowed two because its v2
+#   and v3 updates restate the classifier's current figures inside the note.
+#   Second, **the ≥2-kinds rule** (§5) removed the entire note-to-note class,
+#   about twenty drafted questions. A handful more were dropped for naming
+#   something with no indexed file. The corpus was not topped back up to a round
+#   number after those cuts; 61 is what survived.
+# - **Grounding:** no query asks about content that does not exist. Several
+#   drafts were discarded for naming a thing with no stub — `chromadb`, `mcp`,
+#   `gradio`, `uv` and `faithfulness-judge` are all real in the system but have
+#   no indexed file of their own, so nothing here labels them as a source.
+# - **Reconstructibility:** identical to the gold set's, so this corpus
+#   inherits SYS-017 §3 with no new work. `kb/` sources are committed here;
+#   `learning-notes/` sources are reconstructed in CI by the shallow clone
+#   `ci.yml` already performs, pointed at by `KB_AGENT_NOTES_DIRS`
+#   (ADR-012). The clone's directory name stays load-bearing: a note's `source`
+#   is `<dir name>/<file>.md`, and every label below spells it
+#   `learning-notes/…`.
+# - **Cost to run:** unknown and not zero. Unlike `eval_retrieval.py`, a
+#   loop-level harness over this corpus makes model calls, so under SYS-017's
+#   third corollary it belongs on an owner-triggered lane or nowhere — never on
+#   a pull-request leg. This file is inert data; committing it spends nothing.
+#
+# ============================================================================
+# 4. Schema — same shape as the gold set, with two deliberate differences
+# ============================================================================
+#
+# Same: `id`, `query`, `expected_sources` (chunk `source` metadata values,
+# forward slashes, normalized against OS separators by the harness), `tags`.
+#
+# **Difference 1 — `kinds` (a list), not `kind` (a scalar).** A compositional
+# query spans kinds by definition, so a single `kind` label would be false on
+# every entry, and the `--kind-filter` arm it exists to feed is precisely the
+# thing this corpus is built to be unanswerable by. A useful side effect:
+# `scripts/eval_retrieval.py` reads `q["kind"]` and will therefore fail loudly
+# if anyone points it at this file. That is correct — it measures one
+# `search_kb` call, and this corpus measures a whole turn.
+#
+# **Difference 2 — scoring is ALL-of, not ANY-of.** `gold_set.yaml` scores a
+# hit when *any* expected source appears in the top k, which is right when the
+# label names alternative acceptable homes for one fact. Here the sources are
+# *conjunctive*: each names a distinct necessary piece of the answer, so the
+# pre-registered primary metric is **complete union recall** — pass when
+# *every* `expected_sources` entry appears somewhere in the union of chunk
+# sources the arm retrieved across all `search_kb` calls in the turn. Scoring
+# these labels ANY-of would make the corpus as undiscriminating as the one it
+# exists to replace: one lucky chunk would pass a three-hop question.
+#
+# A secondary, more sensitive metric falls out of the same labels for free and
+# should be reported beside the binary one: **coverage fraction** — the share
+# of a query's expected sources present in the union. It is continuous, so a
+# paired comparison over it has strictly more power than exact McNemar over the
+# binary pass (see §6), and `eval_compare.py` already computes paired means for
+# continuous metrics. Report both; the binary pass is the pre-registered
+# primary, coverage fraction is the secondary, and they are never blended.
+#
+# ============================================================================
+# 5. Composition (61 queries)
+# ============================================================================
+#
+# By shape tag (exactly one per query):
+#   library-in-context   19  a library stub + the project stub(s) that use it
+#   concept-to-instance  20  a note or glossary entry + the project stub that
+#                            instantiates it — often where the note has gone
+#                            stale and the stub carries the current fact
+#   concept-to-library   17  a note or glossary entry + the library stub
+#                            carrying the property asked about
+#   three-kind            5  sources spanning all three kinds at once
+#
+# By source count: 49 two-source, 12 three-source. Nothing has four; no
+# question needing four distinct files survived the "can I name what each one
+# uniquely contributes" test.
+#
+# Every query spans ≥2 kinds. Nothing here is answerable inside one `kind`
+# slice, which is the property that makes the corpus able to say anything about
+# a design that shards retrieval by kind.
+#
+# **Corpus coverage: 37 of the 44 indexed files appear as an expected source**
+# (the frozen 27 reach 20 of 44). The seven that do not are all notes —
+# `11-reproducible-environments-uv`, `12-checkpoint-resume-and-retries`,
+# `20-testing-and-coverage`, `21-test-driven-development`,
+# `23-permissions-allowlists-and-hooks`,
+# `24-one-concern-one-branch-parallel-sessions` and `27-fan-out-cost-control`.
+# They are unreachable here rather than overlooked: each is about tooling or
+# working practice that no project stub or library stub instantiates, so any
+# question they answer is answerable inside the `notes` kind alone. Pairing
+# them with each other produced good questions and single-kind labels, which is
+# the rule above, applied to its own inconvenient case.
+#
+# Two structural facts about this KB shaped the corpus and are worth recording
+# because they bound what any future version of it can look like:
+#
+# - **There is no pure project-to-project query in this file, and there cannot
+#   be one that satisfies the ≥2-kinds rule.** The corpus holds exactly three
+#   project stubs, all of kind `projects`, so a service-to-service question is
+#   single-kind unless it is anchored in a library or a note. The
+#   service-to-service questions here are anchored that way.
+# - **There is no note-to-note query either**, for the same reason: `notes` is
+#   one kind, and the 30 notes files all live in it. About twenty genuinely
+#   good concept-pairing questions were written and then discarded on this
+#   rule. They would make a fine corpus for a different experiment; they cannot
+#   discriminate a kind-sharded one.
+#
+# ============================================================================
+# 6. Power — what 61 queries can and cannot decide
+# ============================================================================
+#
+# Stated up front because it is the first thing a careful reader should ask,
+# and because the corpus this one replaces failed exactly here.
+#
+# **What was wrong with the old corpus.** With `kind` supplied, dense retrieval
+# reaches recall@5 = 1.000 on the 27; unfiltered there are two misses. So at
+# most about two queries can flip. Exact McNemar (`paired_compare.mcnemar_exact`)
+# needs **6 clean wins with zero regressions** to clear p<0.05 (6-0 → p=0.0312;
+# 5-0 → p=0.0625). Two is not short of the bar, it is below the floor of what
+# the test can express: **p<0.05 is unreachable there by construction**, and
+# re-running does not fix it. The observed discordance on that corpus was 1
+# pair in 27 (3.7%) in the last real A/B (ADR-010).
+#
+# **What 61 queries buy.** Exact McNemar, computed with this repo's own
+# `mcnemar_exact`, conditional on the number of discordant pairs n_d:
+#
+#     n_d   fewest wins reaching p<0.05      as a share of discordant pairs
+#      12   10-2   (p=0.0386)                83%
+#      18   14-4   (p=0.0309)                78%
+#      20   15-5   (p=0.0414)                75%
+#      30   21-9   (p=0.0428)                70%
+#      45   30-15  (p≈0.03)                  67%
+#      60   39-21  (p=0.0273)                65%
+#
+# And conditional power to reach p<0.05, at a true win share s among discordant
+# pairs:
+#
+#     n_d    s=0.70   s=0.75   s=0.80   s=0.90
+#      12     0.25     0.39     0.56     0.89
+#      18     0.33     0.52     0.72     0.97
+#      20     0.42     0.62     0.80     0.99
+#      30     0.59     0.80     0.94     1.00
+#      45     0.75     0.92     0.99     1.00
+#      60     0.84     0.97     1.00     1.00
+#
+# **Read honestly, that says three things, and two of them are limits.**
+#
+# 1. **This corpus can decide a large effect, and only a large one.** 80% power
+#    at a 75/25 true split needs n_d = 30 — **half the corpus discordant**. At
+#    a 80/20 split it needs n_d = 20, a third of the corpus. Those are the
+#    conditions under which 61 is an adequate instrument, and they are strong
+#    conditions.
+# 2. **It cannot detect a modest effect at any discordance rate.** Even in the
+#    impossible best case where all 61 queries are discordant, the candidate
+#    must win ~65% of them. A true 60/40 effect with every query discordant
+#    gives p=0.155 — not significant. **No amount of luck makes 61 queries
+#    decide a 60/40 question.** If the real effect is that size, this
+#    instrument will return "cannot tell", and "cannot tell" must not be
+#    reported as "no effect" (the classifier's ADR-023 → ADR-024 sequence is
+#    the in-house precedent: an identical change read p=0.0522 on a small ruler
+#    and p=0.0002 on one twice the size; the bar never moved, the ruler did).
+# 3. **The bet this corpus makes is on discordance, not on n.** The 3.7%
+#    discordance measured on the gold set would give n_d ≈ 2 here and decide
+#    nothing; even a generous 11% gives n_d ≈ 7, and 7 discordant pairs need a
+#    clean 7-0 sweep. 61 is only the right size if the compositional class is
+#    *far* more discriminating than a retriever swap on single-hop lookups —
+#    which is the hypothesis, and which will be visible in the first run's
+#    discordance count whatever the p-value says. **Report n_d prominently. It
+#    is the number that says whether the instrument worked, independent of
+#    which arm won.**
+#
+# Two consequences follow for whoever runs this:
+#
+# - **Report the coverage-fraction comparison too** (§4). Binary McNemar
+#    throws away the difference between "found 1 of 3" and "found 2 of 3"; on a
+#    corpus where most sources have 2–3 required files, that is most of the
+#    signal. The continuous metric will detect a smaller effect than the table
+#    above allows for.
+# - **A null here is a bound, not a refutation.** If the run comes back at
+#    n_d = 8 with a 5-3 split, the honest sentence is "this corpus can rule out
+#    a very large effect and can say nothing about a moderate one," and the
+#    size of ruler that *would* decide it is computable from the table above.
+#
+# ============================================================================
+# 7. What this corpus does NOT measure
+# ============================================================================
+#
+# Answer quality. ADR-004's separation holds here unchanged: this is a
+# retrieval-coverage label (`query → the set of source files whose evidence the
+# answer needs`), objectively checkable, with **no judge**. Whether an arm
+# actually used the chunks it retrieved, cited them, or wrote a good answer is
+# a different layer and a different instrument — and per ADR-004:64-69 a judge
+# at that layer must stay distinct from this metric rather than absorbing it.
+#
+# ============================================================================
+
+queries:
+  # ==========================================================================
+  # library-in-context (19) — the project stub says which library and why it is
+  # there; the library stub carries the property the question asks about.
+  # ==========================================================================
+
+  - id: comp-01
+    kinds: [projects, libraries]
+    tags: [library-in-context]
+    query: "my notes service defines its request bodies with a schema library — which library is it, and which of its APIs were renamed between v1 and v2 in a way that would break those models?"
+    expected_sources:
+      - kb/projects/notes-api.md      # names pydantic as the validation layer (NoteRequest/TagsRequest/NoteResponse)
+      - kb/libraries/pydantic.md      # the v1→v2 renames (.dict()→.model_dump(), Config→model_config)
+
+  - id: comp-02
+    kinds: [projects, libraries]
+    tags: [library-in-context]
+    query: "what does my notes API use to shape its responses, and what coercion surprise can that library spring when a numeric string arrives?"
+    expected_sources:
+      - kb/projects/notes-api.md      # NoteResponse is the response schema, and which library owns it
+      - kb/libraries/pydantic.md      # liberal type coercion, and strict mode as the cure
+
+  - id: comp-03
+    kinds: [projects, libraries]
+    tags: [library-in-context]
+    query: "which server runs my notes API, and why would I put that server behind a process manager in production rather than alone?"
+    expected_sources:
+      - kb/projects/notes-api.md      # uvicorn is the ASGI server this project runs the app under
+      - kb/libraries/uvicorn.md       # gunicorn + UvicornWorker for worker scaling and restarts
+
+  - id: comp-04
+    kinds: [projects, libraries]
+    tags: [library-in-context]
+    query: "one of my projects still depends on a BM25 library whose code no longer runs — which project, why is the dependency still declared, and what is that library's main scaling weakness?"
+    expected_sources:
+      - kb/projects/defense-news-classifier.md   # BM25 retired in ADR-012, code kept dormant as the record, hence the dep
+      - kb/libraries/rank-bm25.md                # pure Python, slow on large corpora, no inverted index
+
+  - id: comp-05
+    kinds: [projects, libraries]
+    tags: [library-in-context]
+    query: "which project handles its predictions and eval outputs in dataframes, and what indexing mistake does that library warn can silently fail to write?"
+    expected_sources:
+      - kb/projects/defense-news-classifier.md   # pandas holds the labeled dataset, predictions and eval outputs
+      - kb/libraries/pandas.md                   # chained indexing / SettingWithCopyWarning, use .loc
+
+  - id: comp-06
+    kinds: [projects, libraries]
+    tags: [library-in-context]
+    query: "what eval artifacts does my classifier build with its dataframe library, and what unexpected type change can that library introduce when values go missing?"
+    expected_sources:
+      - kb/projects/defense-news-classifier.md   # confusion matrices, per-label metrics, misclassification logs
+      - kb/libraries/pandas.md                   # integer columns become floats once NaN appears
+
+  - id: comp-07
+    kinds: [projects, libraries]
+    tags: [library-in-context]
+    query: "which of my projects maps entities to tables through an ORM, and what query-count problem does that ORM warn about when iterating a relationship?"
+    expected_sources:
+      - kb/projects/notes-api.md      # sqlalchemy is the ORM layer for the Note and NoteTag entities
+      - kb/libraries/sqlalchemy.md    # the N+1 problem from lazy loading; joinedload/selectinload
+
+  - id: comp-08
+    kinds: [projects, libraries]
+    tags: [library-in-context]
+    query: "which two database backends can my notes service run against and how is that chosen, and what does its ORM handle across backends besides the queries themselves?"
+    expected_sources:
+      - kb/projects/notes-api.md      # SQLite by default or PostgreSQL via DATABASE_URL
+      - kb/libraries/sqlalchemy.md    # connection management, pooling and transactions across many backends
+
+  - id: comp-09
+    kinds: [projects, libraries]
+    tags: [library-in-context]
+    query: "what web framework serves my notes API, and what goes wrong if I make a blocking call inside one of its async endpoints?"
+    expected_sources:
+      - kb/projects/notes-api.md      # fastapi is the HTTP layer, routing and dependency injection here
+      - kb/libraries/fastapi.md       # a blocking call in `async def` blocks the event loop; run_in_threadpool
+
+  - id: comp-10
+    kinds: [projects, libraries]
+    tags: [library-in-context]
+    query: "which framework feature does my notes API use to run work after the response is sent, and what documentation does that same framework generate for free?"
+    expected_sources:
+      - kb/projects/notes-api.md      # BackgroundTasks for post-save tag enrichment
+      - kb/libraries/fastapi.md       # auto-generated Swagger UI at /docs and ReDoc at /redoc
+
+  - id: comp-11
+    kinds: [projects, libraries]
+    tags: [library-in-context]
+    query: "my knowledge-base agent is instrumented for tracing but records nothing by default — which OpenTelemetry package gives it that no-op behaviour, and what must stay aligned across packages or telemetry silently disappears?"
+    expected_sources:
+      - kb/projects/kb-agent.md                  # instrumented against the OTel API always; SDK records only under KB_AGENT_TRACING
+      - kb/libraries/opentelemetry-api.md        # API/SDK/instrumentation versions must be kept in close alignment
+
+  - id: comp-12
+    kinds: [projects, libraries]
+    tags: [library-in-context]
+    query: "my notes service lists an OpenTelemetry SDK dependency — what would I still have to wire up for its spans to actually leave the process?"
+    expected_sources:
+      - kb/projects/notes-api.md                 # the project declares opentelemetry-api/-sdk for instrumentation
+      - kb/libraries/opentelemetry-sdk.md        # exporters (OTLP/Jaeger/Zipkin/console) plus a TracerProvider
+
+  - id: comp-13
+    kinds: [projects, libraries]
+    tags: [library-in-context]
+    query: "which two of my agent's tools reach out over HTTP, and what protocol version does the client library behind them support?"
+    expected_sources:
+      - kb/projects/kb-agent.md       # classify_snippet and search_notes are the cross-repo HTTP seams, carried by httpx
+      - kb/libraries/httpx.md         # HTTP/2 support and connection pooling
+
+  - id: comp-14
+    kinds: [projects, libraries]
+    tags: [library-in-context]
+    query: "where does my knowledge-base agent call Claude, and what does the official SDK do if it cannot find a key in the environment?"
+    expected_sources:
+      - kb/projects/kb-agent.md       # two call sites: ingest.py stub generation and the agent.py tool-use loop
+      - kb/libraries/anthropic.md     # the client raises when ANTHROPIC_API_KEY is absent
+
+  - id: comp-15
+    kinds: [projects, libraries]
+    tags: [library-in-context, three-source]
+    query: "which of my projects make outbound HTTP calls with the same client library, and what does that library advise about creating a fresh client per request?"
+    expected_sources:
+      - kb/projects/kb-agent.md       # httpx carries the classify_snippet and search_notes seams
+      - kb/projects/notes-api.md      # httpx is the client that calls the classifier during background enrichment
+      - kb/libraries/httpx.md         # reuse clients or use them as context managers; per-request clients leak
+
+  - id: comp-16
+    kinds: [projects, libraries]
+    tags: [library-in-context, three-source]
+    query: "two of my services load their configuration from a .env file with the same library — which two, and what does that library refuse to do when a variable is already set in the shell?"
+    expected_sources:
+      - kb/projects/kb-agent.md            # python-dotenv loads ANTHROPIC_API_KEY here
+      - kb/projects/notes-api.md           # python-dotenv loads DATABASE_URL, CLASSIFIER_URL and HOST here
+      - kb/libraries/python-dotenv.md      # load_dotenv does not override an existing env var unless override=True
+
+  - id: comp-17
+    kinds: [projects, libraries]
+    tags: [library-in-context, three-source]
+    query: "which of my projects call the Claude Messages API through the official SDK, and what parameter must every one of those requests set explicitly?"
+    expected_sources:
+      - kb/projects/kb-agent.md                  # ingest.py and the agent loop both go through the SDK
+      - kb/projects/defense-news-classifier.md   # one API call per article, plus the synthetic dataset generator
+      - kb/libraries/anthropic.md                # max_tokens is mandatory; omitting it errors
+
+  - id: comp-18
+    kinds: [projects, libraries]
+    tags: [library-in-context, three-source]
+    query: "which of my projects declare the OpenTelemetry API package, and what do you actually get if that is the only OpenTelemetry thing installed?"
+    expected_sources:
+      - kb/projects/kb-agent.md                  # declares opentelemetry-api/-sdk for the tool-loop spans
+      - kb/projects/notes-api.md                 # declares opentelemetry-api/-sdk for service instrumentation
+      - kb/libraries/opentelemetry-api.md        # API alone is no-op; you also need the SDK and an exporter
+
+  - id: comp-19
+    kinds: [projects, libraries]
+    tags: [library-in-context, three-source]
+    query: "which of my projects depend on the OpenTelemetry SDK, and what has to be set explicitly or the instrumentation quietly does nothing at all?"
+    expected_sources:
+      - kb/projects/kb-agent.md                  # the SDK only records when KB_AGENT_TRACING is set
+      - kb/projects/notes-api.md                 # the other project declaring the SDK
+      - kb/libraries/opentelemetry-sdk.md        # without trace.set_tracer_provider(...) the API stays no-op
+
+  # ==========================================================================
+  # concept-to-instance (20) — a note or glossary entry carries the idea; a
+  # project stub carries the instance. Several of these are load-bearing
+  # because the note is deliberately stale and the stub holds the current fact.
+  # ==========================================================================
+
+  - id: comp-20
+    kinds: [notes, projects]
+    tags: [concept-to-instance]
+    query: "what is the circular-eval trap, and what does my classifier actually score today now that it is graded against a human-labeled answer key?"
+    expected_sources:
+      - learning-notes/08-synthetic-data-circular-eval.md   # the trap: the same model wrote the data and takes the test
+      - kb/projects/defense-news-classifier.md              # current v3.2.1 human-graded figures; the note's own update is two releases stale
+
+  - id: comp-21
+    kinds: [notes, projects]
+    tags: [concept-to-instance]
+    query: "what is tiered model routing, and what happened when my classifier actually built and measured it?"
+    expected_sources:
+      - learning-notes/09-tiered-model-routing.md           # the idea, and the note's claim that it is an unbuilt v2 plan
+      - kb/projects/defense-news-classifier.md              # built in v2.2.0 and declined in ADR-013: +0 rows at ~1.97x cost
+
+  - id: comp-22
+    kinds: [notes, projects]
+    tags: [concept-to-instance]
+    query: "semantic versioning says each digit is a promise — what kind of release was my classifier's most recent one, and what did it change?"
+    expected_sources:
+      - learning-notes/15-semantic-versioning.md            # MAJOR/MINOR/PATCH semantics; the note's roadmap stops at a planned v3.0.0
+      - kb/projects/defense-news-classifier.md              # v3.2.1, one prompt bullet, region 87.0% → 94.4%
+
+  - id: comp-23
+    kinds: [notes, projects]
+    tags: [concept-to-instance]
+    query: "tool use can force a label enum — how is that enum enforced in my classifier now, and is the old in-code validation still in the pipeline?"
+    expected_sources:
+      - learning-notes/01-structured-output-via-tool-use.md # the enum-in-a-schema technique and tool_choice forcing
+      - kb/projects/defense-news-classifier.md              # since ADR-008 the schema is sent `strict` (server-side); validation retained as belt-and-braces
+
+  - id: comp-24
+    kinds: [notes, projects]
+    tags: [concept-to-instance]
+    query: "what are the named patterns for orchestrating several agents, and what did it cost my classifier when it tried a multi-agent review pipeline?"
+    expected_sources:
+      - learning-notes/25-multi-agent-workflows.md          # read-only fan-out, by-repo write fan-out, freeze-specs-first, integrator
+      - kb/projects/defense-news-classifier.md              # ADR-020: triage→classify→critic declined; over-challenged at ~4x the calls
+
+  - id: comp-25
+    kinds: [notes, projects]
+    tags: [concept-to-instance]
+    query: "the eval once caught a prompt that read better and scored worse — what were the numbers on that one, and how many escalations has the same bar turned down since?"
+    expected_sources:
+      - learning-notes/02-eval-driven-development.md        # 79.0% → 76.7%, industry recall 0.22 → 0.10, reverted
+      - kb/projects/defense-news-classifier.md              # six declines and one adoption, all against the same pre-registered bar
+
+  - id: comp-26
+    kinds: [notes, projects]
+    tags: [concept-to-instance]
+    query: "which project's CLAUDE.md carries its label definitions, and what are those label values?"
+    expected_sources:
+      - learning-notes/22-steering-an-ai-agent-with-claude-md.md   # names the classifier's CLAUDE.md as the home of the label definitions
+      - kb/projects/defense-news-classifier.md                     # the actual category / operational-domain / region value sets
+
+  - id: comp-27
+    kinds: [notes, projects]
+    tags: [concept-to-instance]
+    query: "my shipped container image deliberately leaves the heavy dataframe library out — what else is left out with it, and what would that library have been doing in the project?"
+    expected_sources:
+      - learning-notes/16-containers-and-docker.md          # the image installs only requirements-api.txt; generator, eval, data and pandas excluded
+      - kb/projects/defense-news-classifier.md              # pandas handles the labeled dataset, predictions and eval outputs
+
+  - id: comp-28
+    kinds: [notes, projects]
+    tags: [concept-to-instance]
+    query: "the old Kafka consumer was kept somewhere rather than deleted — which repo holds it, and what other dead code does that repo keep for the same reason?"
+    expected_sources:
+      - learning-notes/18-event-driven-architecture.md      # the consumer is preserved, marked inactive, in the classifier repo
+      - kb/projects/defense-news-classifier.md              # the BM25 retrieval code is likewise kept dormant as the record of a negative result
+
+  - id: comp-29
+    kinds: [notes, projects]
+    tags: [concept-to-instance]
+    query: "why did my notes service stop publishing to a broker, and which two labels does its replacement enrichment path write back?"
+    expected_sources:
+      - learning-notes/18-event-driven-architecture.md      # one consumer, no replay need, a dual-write hazard to babysit
+      - kb/projects/notes-api.md                            # the background task writes back predicted category and operational_domain tags
+
+  - id: comp-30
+    kinds: [notes, projects]
+    tags: [concept-to-instance]
+    query: "how does a hand-rolled tool-use loop work, and which of my agent's tools are exposed to an MCP host versus only inside that loop?"
+    expected_sources:
+      - learning-notes/05-the-agentic-tool-use-loop.md      # the loop mechanics, the iteration cap, tool_use_id pairing
+      - kb/projects/kb-agent.md                             # MCP exposes only search_kb and list_projects; the HTTP-seam tools are excluded
+
+  - id: comp-31
+    kinds: [notes, projects]
+    tags: [concept-to-instance]
+    query: "a tool description is itself a prompt — what does my agent's search_kb description tell the model to do, and which of its tools does the MCP server withhold and why?"
+    expected_sources:
+      - learning-notes/04-tool-use-the-general-idea.md      # quotes the search_kb description and explains descriptions as prompts
+      - kb/projects/kb-agent.md                             # classify_snippet and search_notes withheld: they need another service running
+
+  - id: comp-32
+    kinds: [notes, projects]
+    tags: [concept-to-instance]
+    query: "what makes an answer open-book rather than closed-book, and over which two transports does my knowledge-base project expose its retrieval tool?"
+    expected_sources:
+      - learning-notes/06-rag-answering-from-your-own-docs.md   # the retrieve-then-generate split and the cite-your-source rule
+      - kb/projects/kb-agent.md                                 # one tool layer, two transports: the tool-use loop/Gradio UI and the MCP stdio server
+
+  - id: comp-33
+    kinds: [notes, projects]
+    tags: [concept-to-instance]
+    query: "which embedding model turns my knowledge base into vectors, and does the vector store it writes to run as a separate server or inside the process?"
+    expected_sources:
+      - learning-notes/07-embeddings-and-vector-stores.md   # all-MiniLM-L6-v2 running locally, no API key, 384 dimensions
+      - kb/projects/kb-agent.md                             # chromadb as a local embedded PersistentClient, never HTTP/server mode
+
+  - id: comp-34
+    kinds: [notes, projects]
+    tags: [concept-to-instance]
+    query: "BM25 was measured and cut as a grounding layer for my classifier — which two other retrieval shapes did that project also decline, and what happened with each?"
+    expected_sources:
+      - learning-notes/glossary.md                          # the BM25 entry: measured at +1.9% category / +0.0% domain and cut
+      - kb/projects/defense-news-classifier.md              # ADR-018 mined keyword features and ADR-019 kNN exemplars, the other two declines
+
+  - id: comp-35
+    kinds: [notes, projects]
+    tags: [concept-to-instance]
+    query: "before a model's verdicts count for anything it has to be checked against humans — how far does my classifier's judge currently disagree with the human labels, and on which axis?"
+    expected_sources:
+      - learning-notes/glossary.md                          # the LLM-as-judge entry: a judge gets its own eval before it earns authority
+      - kb/projects/defense-news-classifier.md              # judge-vs-human agreement on region fell from 100.0% to 96.3% at v3.2.1
+
+  - id: comp-36
+    kinds: [notes, projects]
+    tags: [concept-to-instance]
+    query: "which numbers score my knowledge base's retriever, and what vector store are those numbers being measured against?"
+    expected_sources:
+      - learning-notes/glossary.md                          # the recall@k and MRR entry, including the 0.630 → 0.741 recall@1 lift
+      - kb/projects/kb-agent.md                             # chromadb, local and embedded, is the store under measurement
+
+  - id: comp-37
+    kinds: [notes, projects]
+    tags: [concept-to-instance]
+    query: "what makes something an agent rather than a chatbot, and how many tools can mine actually call?"
+    expected_sources:
+      - learning-notes/glossary.md                          # the agent entry: goal, tool, result, next tool, until done
+      - kb/projects/kb-agent.md                             # four tools across two local and two cross-repo HTTP seams
+
+  - id: comp-38
+    kinds: [notes, projects]
+    tags: [concept-to-instance]
+    query: "what is the honest headline metric for my classifier's category axis today, and how wide is the interval around the accuracy figure it sits beside?"
+    expected_sources:
+      - learning-notes/glossary.md                          # the classifier-metrics entry: current macro-F1 values and why F1 over accuracy
+      - kb/projects/defense-news-classifier.md              # at n=54 a single-axis figure carries roughly a ±13-point interval
+
+  - id: comp-39
+    kinds: [notes, projects]
+    tags: [concept-to-instance]
+    query: "my agent answers from my own documents rather than memory — where do those documents come from in the first place?"
+    expected_sources:
+      - learning-notes/glossary.md                          # the RAG entry: retrieve chunks by vector search, hand them to the model
+      - kb/projects/kb-agent.md                             # projects.yaml → ingest.py generates the stubs → index.py embeds them
+
+  # ==========================================================================
+  # concept-to-library (15) — a note or glossary entry says where and why the
+  # library is used; the library stub carries the property asked about.
+  # ==========================================================================
+
+  - id: comp-40
+    kinds: [notes, libraries]
+    tags: [concept-to-library]
+    query: "my notes API dropped its migration tool in the port and builds tables at startup instead — which library does that, and what does the same library warn about touching an object after its session closes?"
+    expected_sources:
+      - learning-notes/19-database-migrations.md   # the v2 port has no migration tool; Base.metadata.create_all at startup
+      - kb/libraries/sqlalchemy.md                 # DetachedInstanceError on lazy attributes after the session closes
+
+  - id: comp-41
+    kinds: [notes, libraries]
+    tags: [concept-to-library]
+    query: "the repository layer got folded into something else during my notes API's port — what took the role over, and what does it offer for loading relationships up front?"
+    expected_sources:
+      - learning-notes/17-layered-architecture.md  # the Python port folds the repository role into the ORM session
+      - kb/libraries/sqlalchemy.md                 # joinedload / selectinload as the eager-loading options
+
+  - id: comp-42
+    kinds: [notes, libraries]
+    tags: [concept-to-library]
+    query: "where should my Claude API key live rather than in the code, and what does the SDK do at construction time if it cannot find one?"
+    expected_sources:
+      - learning-notes/10-secrets-and-env.md       # the .env / .env.example split, gitignored, and rotate if it ever lands in a commit
+      - kb/libraries/anthropic.md                  # the client raises when no key is found in the environment
+
+  - id: comp-43
+    kinds: [notes, libraries]
+    tags: [concept-to-library]
+    query: "the .env pattern needs something to read the file at runtime — which library does that, and what does it leave alone if the variable is already exported in my shell?"
+    expected_sources:
+      - learning-notes/10-secrets-and-env.md       # the pattern: real key in .env, empty template committed, loaded at runtime
+      - kb/libraries/python-dotenv.md              # load_dotenv() does not override an existing environment variable by default
+
+  - id: comp-44
+    kinds: [notes, libraries]
+    tags: [concept-to-library]
+    query: "my precision and recall counting is plain boolean arithmetic over a predictions table — which library provides that table, and what does it warn about assigning into a filtered slice of one?"
+    expected_sources:
+      - learning-notes/03-reading-the-numbers.md   # the tp/fp/fn boolean arithmetic over the predictions dataframe
+      - kb/libraries/pandas.md                     # chained indexing may silently fail to modify the original; use .loc/.iloc
+
+  - id: comp-45
+    kinds: [notes, libraries]
+    tags: [concept-to-library]
+    query: "keyword search breaks when the query and the document use different words — if I wanted the keyword side anyway, what would the library need me to do to the text first?"
+    expected_sources:
+      - learning-notes/07-embeddings-and-vector-stores.md  # the vocabulary-mismatch failure embeddings exist to fix
+      - kb/libraries/rank-bm25.md                          # expects pre-tokenized input; tokenization, lowercasing and stopwords are yours
+
+  - id: comp-46
+    kinds: [notes, libraries]
+    tags: [concept-to-library]
+    query: "which scoring formulas can I choose between if I add keyword ranking, and what kind of query does that scoring handle badly?"
+    expected_sources:
+      - learning-notes/glossary.md                 # the BM25 entry: falls apart when query and document use different words
+      - kb/libraries/rank-bm25.md                  # BM25Okapi, BM25L and BM25Plus as the selectable variants
+
+  - id: comp-47
+    kinds: [notes, libraries]
+    tags: [concept-to-library]
+    query: "what runs post-response work in my notes service without a broker, and what else does the framework providing it generate from the same route definitions?"
+    expected_sources:
+      - learning-notes/glossary.md                 # the BackgroundTask entry: same process, no broker, caller gets a fast response
+      - kb/libraries/fastapi.md                    # interactive docs at /docs and /redoc generated from the routes and models
+
+  - id: comp-48
+    kinds: [notes, libraries]
+    tags: [concept-to-library]
+    query: "a note in my API cannot be built without a title — which library enforces that, and how liberal is it about types it was not asked to be strict on?"
+    expected_sources:
+      - learning-notes/14-constructors-and-dependency-injection.md  # NoteRequest's Field(..., min_length=1) as valid-by-construction
+      - kb/libraries/pydantic.md                                    # coercion is liberal by default unless you use strict types or strict mode
+
+  - id: comp-49
+    kinds: [notes, libraries]
+    tags: [concept-to-library]
+    query: "the same dict shape gets rebuilt by hand on every loop in one of my scripts — which library formalizes that into a validated model, and what does it build the validation from?"
+    expected_sources:
+      - learning-notes/13-classes-vs-functions.md  # the tell that a dict wants to be a class, and the dataclass/record answer
+      - kb/libraries/pydantic.md                   # models defined as classes, validation generated from type annotations
+
+  - id: comp-50
+    kinds: [notes, libraries]
+    tags: [concept-to-library]
+    query: "each pass of my agent loop calls the model — which SDK method is the modern interface for that, and which legacy interface should I not be using?"
+    expected_sources:
+      - learning-notes/05-the-agentic-tool-use-loop.md   # the loop, and where in it the model call sits
+      - kb/libraries/anthropic.md                        # client.messages.create is current; completions-style usage is legacy
+
+  - id: comp-51
+    kinds: [notes, libraries]
+    tags: [concept-to-library]
+    query: "which layer of my notes API speaks HTTP and nothing else, and what does its framework derive from the type annotations on those handlers?"
+    expected_sources:
+      - learning-notes/17-layered-architecture.md  # the controller layer: paths, verbs, status codes, nothing else
+      - kb/libraries/fastapi.md                    # request validation, serialization and error handling derived from type hints
+
+  - id: comp-52
+    kinds: [notes, libraries]
+    tags: [concept-to-library]
+    query: "the integration test I still owe would stub the classifier's endpoint — which client library would be under test, and what does it offer for driving an app in-process with no server running?"
+    expected_sources:
+      - learning-notes/26-integration-tests-with-testcontainers.md  # the outstanding HTTP-stub test of /classify driving the writeback task
+      - kb/libraries/httpx.md                                       # ASGITransport / WSGITransport for in-process testing
+
+  - id: comp-53
+    kinds: [notes, libraries]
+    tags: [concept-to-library]
+    query: "my instructions file says to read the key from an environment variable and never hardcode it — which library actually puts it there, and what does it not do if the variable already exists?"
+    expected_sources:
+      - learning-notes/22-steering-an-ai-agent-with-claude-md.md   # the file encodes the never-hardcode constraint as a standing instruction
+      - kb/libraries/python-dotenv.md                              # load_dotenv() will not override an already-set variable without override=True
+
+  - id: comp-54
+    kinds: [notes, libraries]
+    tags: [concept-to-library]
+    query: "if I want to send different tasks to different model tiers, where does the model name go in the SDK call, and what else is mandatory on that same call?"
+    expected_sources:
+      - learning-notes/09-tiered-model-routing.md  # tier per task, cheap workhorse with escalation only where it pays
+      - kb/libraries/anthropic.md                  # the Messages API call, and max_tokens as a required parameter
+
+  # ==========================================================================
+  # The widest queries (7) — every entry below needs three source files.
+  # comp-55/56/57/60/61 span all three kinds at once (tag `three-kind`); comp-58
+  # and comp-59 need two notes plus a library, so they keep the
+  # `concept-to-library` shape tag and are counted there. This is the class a
+  # single kind-scoped retriever cannot satisfy by construction.
+  # ==========================================================================
+
+  - id: comp-55
+    kinds: [notes, projects, libraries]
+    tags: [three-kind, three-source]
+    query: "creating a note now calls another service directly instead of going through a queue — why was the queue removed, which service makes the call, and what does its HTTP client advise about client lifetime?"
+    expected_sources:
+      - learning-notes/18-event-driven-architecture.md   # why the broker was collapsed away: one consumer, no replay, a dual-write hazard
+      - kb/projects/notes-api.md                         # the project that schedules the call, and that httpx is what makes it
+      - kb/libraries/httpx.md                            # reuse a client or use it as a context manager; per-request clients leak
+
+  - id: comp-56
+    kinds: [notes, projects, libraries]
+    tags: [three-kind, three-source]
+    query: "my agent's tracing is inert until asked — which environment variable turns it on, which project is that, and what would I configure in the SDK to ship the spans somewhere?"
+    expected_sources:
+      - learning-notes/28-tracing-an-agent-loop.md       # instrument against the API always, record on demand; the span tree shape
+      - kb/projects/kb-agent.md                          # KB_AGENT_TRACING gates recording; the kb_agent.ask span tree
+      - kb/libraries/opentelemetry-sdk.md                # exporters and batch/simple span processors as the export wiring
+
+  - id: comp-57
+    kinds: [notes, projects, libraries]
+    tags: [three-kind, three-source]
+    query: "removing a component and re-measuring is the discipline — which retrieval component did my classifier remove that way, and what would the library behind it have required of me anyway?"
+    expected_sources:
+      - learning-notes/29-ablate-your-own-scaffolding.md # ablation: remove one component, hold everything else fixed, re-run, compare
+      - kb/projects/defense-news-classifier.md           # BM25 grounding shipped in v2.0.0 and retired in ADR-012 once it stopped winning
+      - kb/libraries/rank-bm25.md                        # it does no preprocessing; tokenization and stopword removal are the caller's job
+
+  - id: comp-58
+    kinds: [notes, libraries]
+    tags: [concept-to-library, three-source]
+    query: "an API key must reach neither my git history nor a shipped image — which file keeps it out of each, and which library reads the real one at runtime?"
+    expected_sources:
+      - learning-notes/10-secrets-and-env.md       # .env gitignored plus a committed .env.example; rotate if it ever lands in a commit
+      - learning-notes/16-containers-and-docker.md # .dockerignore lists .env and .env.* so no key is baked into the image
+      - kb/libraries/python-dotenv.md              # the library that reads the file into the environment at runtime
+
+  - id: comp-59
+    kinds: [notes, libraries]
+    tags: [concept-to-library, three-source]
+    query: "which test would catch a query that passes on SQLite and fails on Postgres, what error actually turned up when that happened, and which ORM sits between my code and either database?"
+    expected_sources:
+      - learning-notes/26-integration-tests-with-testcontainers.md  # a Postgres Testcontainer as the test that would catch it
+      - learning-notes/19-database-migrations.md                    # the real failure: function lower(bytea) does not exist, green on H2
+      - kb/libraries/sqlalchemy.md                                  # the ORM, and that it spans PostgreSQL/SQLite behind one API
+
+  - id: comp-60
+    kinds: [notes, projects, libraries]
+    tags: [three-kind, three-source]
+    query: "how does searching by meaning work, which project embeds its own documents locally to do it, and which library would supply the keyword alternative if I wanted both?"
+    expected_sources:
+      - learning-notes/07-embeddings-and-vector-stores.md  # vectors, nearest neighbours, cosine similarity, 384 dimensions
+      - kb/projects/kb-agent.md                            # the project embedding locally into chromadb with no API key and no network
+      - kb/libraries/rank-bm25.md                          # the keyword-ranking library, its variants and its preprocessing demands
+
+  - id: comp-61
+    kinds: [notes, projects, libraries]
+    tags: [three-kind, three-source]
+    query: "why can my classifier's output shape not drift into synonyms, which release changed how that is enforced, and what else must the SDK call carry besides the schema?"
+    expected_sources:
+      - learning-notes/01-structured-output-via-tool-use.md  # the enum-in-a-schema mechanism and why "aerial" cannot come back
+      - kb/projects/defense-news-classifier.md               # since ADR-008 the schema is sent `strict`, so the enum is enforced server-side
+      - kb/libraries/anthropic.md                            # tool use via the Messages API, and max_tokens required on every request

@@ -193,6 +193,44 @@ merge on the value: per
 a floor needs several CI-measured runs to sit above their noise, and those runs are only now
 starting to accumulate.
 
+### Compositional set — an instrument, not yet a measurement
+
+[`eval/compositional_set.yaml`](eval/compositional_set.yaml) is a **second, separate**
+corpus of 61 queries that sits alongside the frozen 27 and does not touch them. It exists
+because of a property of the gold set: **26 of its 27 queries have exactly one expected
+source.** A single dense `search_kb` call answers a single-hop lookup by construction, so
+that corpus cannot tell a multi-call retrieval design apart from the shipped loop — with
+the kind filter supplied it is already at recall@5 1.000, leaving a headroom of one to two
+queries. Every query in the compositional set instead needs evidence from **two or more
+files spanning two or more kinds**, which is the only class where extra retrieval work has
+anything to recover.
+
+Three things about it are deliberate and load-bearing:
+
+- **Nothing has been run against it.** It was authored before any arm exists, so no query
+  can have been chosen because something failed it. The file says so in its own header,
+  and the git history is the check.
+- **It is scored ALL-of, not ANY-of.** The gold set counts a hit when *any* expected source
+  appears in the top *k*; here the sources are conjunctive, so the pre-registered metric is
+  complete union recall over every `search_kb` call in a turn, with per-query coverage
+  fraction reported beside it.
+- **It admits what it cannot decide.** 61 queries reach 80% power at a 75/25 effect only if
+  roughly half of them come back discordant; a true 60/40 effect is undetectable at *any*
+  discordance rate. The header carries the exact-McNemar tables rather than leaving that to
+  be discovered after a run.
+
+There is **no harness for it in this PR and nothing to run today** — a loop-level eval
+spends API budget, so under [`system/SYS-017`](https://github.com/sanlee-ys/architecture/blob/main/decisions/SYS-017-evals-as-ci.md)
+it belongs on an owner-triggered lane and never on a pull-request leg. When one lands the
+shape is the existing paired comparison, unchanged:
+
+```bash
+uv run python scripts/index.py                       # the corpus this is scored against
+uv run --env-file .env python scripts/eval_graph.py --arm <name> \
+    --set eval/compositional_set.yaml --json eval/comp-<name>.json   # once per arm
+uv run python scripts/eval_compare.py --baseline eval/comp-a.json --candidate eval/comp-b.json
+```
+
 ## Observability
 
 A tool-use loop is a distributed system: one `ask()` fans out into several model
