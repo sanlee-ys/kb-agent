@@ -63,7 +63,7 @@ read before adoption.
 | `.gitignore` | **Unchanged, deliberately.** Worktrees live under `$HOME/.treehouse/`, not in the repo, so the pool leaves nothing to ignore. |
 | `chroma_db/` | **Unchanged and still git-ignored.** It is the *reason* for this ADR, not a thing this ADR alters — the pool preserves it between sessions rather than committing it. |
 | [ADR-011](ADR-011-incremental-index-by-default.md) | Its incremental-index behaviour is what makes a warm pool worth having: a preserved `chroma_db/` plus incremental indexing means a reused worktree re-embeds only what changed. |
-| `career/ideas.md` | Updated the same day with the audit, the install method, and the `treehouse update` warning. Private repo; the operative record is this ADR. |
+| *(a private parking-lot note, outside this repo)* | Updated the same day with the audit, the install method, and the `treehouse update` warning. Private; the operative record is this ADR. |
 
 ## Consequences
 
