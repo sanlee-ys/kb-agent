@@ -11,16 +11,13 @@ store, and serves an agent that searches that KB to answer questions.
 
 ## How it works
 
-```
-projects.yaml ──▶ ingest.py ──▶ kb/*.md ──▶ index.py ──▶ ChromaDB (local)
-                  (Anthropic)   (you edit)   (local embeds)        │
-                                                                   ▼
-                          agent.py ──▶ search_kb · list_projects · classify_snippet · search_notes
-                          (Claude tool-use loop)                          │ HTTP
-                                                          ┌───────────────┴───────────────┐
-                                                          ▼                               ▼
-                                          defense-news-classifier /classify        notes-api /notes
-```
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="images/kb-agent-pipeline-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="images/kb-agent-pipeline-light.svg">
+    <img alt="kb-agent pipeline: projects.yaml → ingest.py → kb/*.md → index.py → ChromaDB; agent.py tools search_kb, list_projects, classify_snippet, search_notes; HTTP seams to defense-news-classifier /classify and notes-api /notes" src="images/kb-agent-pipeline-dark.svg" width="100%">
+  </picture>
+</p>
 
 - **`scripts/ingest.py`** — reads each project's `pyproject.toml`/`requirements.txt`
   + README and uses the Anthropic API to write KB stubs. Never overwrites existing
