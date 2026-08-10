@@ -1,0 +1,128 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="460" viewBox="0 0 1120 460" role="img" aria-labelledby="title desc">
+  <title id="title">kb-agent pipeline</title>
+  <desc id="desc">projects.yaml flows through ingest.py into kb Markdown stubs, then index.py embeds them into local ChromaDB. agent.py queries via search_kb and list_projects locally, and via classify_snippet and search_notes over HTTP to defense-news-classifier and notes-api.</desc>
+  <defs>
+    <style>
+      .mono { font-family: 'JetBrains Mono','Fira Code','Cascadia Mono',Consolas,'DejaVu Sans Mono',monospace; }
+    </style>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1.5 L 9 5 L 0 8.5 Z" fill="#06989a"/>
+    </marker>
+    <marker id="arr-http" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1.5 L 9 5 L 0 8.5 Z" fill="#c4a000"/>
+    </marker>
+    <marker id="arr-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1.5 L 9 5 L 0 8.5 Z" fill="#888a85"/>
+    </marker>
+  </defs>
+
+  <!-- frame -->
+  <rect x="0" y="0" width="1120" height="460" rx="10" fill="#ffffff" stroke="#c9ccc6"/>
+  <path d="M0 36 V10 a10 10 0 0 1 10 -10 H1110 a10 10 0 0 1 10 10 V36 Z" fill="#f1f2ef"/>
+  <line x1="0" y1="36" x2="1120" y2="36" stroke="#c9ccc6"/>
+  <text x="21" y="23.4" class="mono" font-size="14" fill="#000000" fill-opacity="0.55">kb-agent pipeline</text>
+  <text x="1099" y="23.4" class="mono" font-size="12" fill="#000000" fill-opacity="0.4" text-anchor="end">RAG · tool use · HTTP seams</text>
+
+  <!-- section: ingest -->
+  <text x="28" y="62" class="mono" font-size="11" letter-spacing="1.5" fill="#06989a">INGEST</text>
+  <line x1="88" y1="58" x2="1092" y2="58" stroke="#c9ccc6" stroke-dasharray="2 4"/>
+
+  <!-- stage boxes row 1 -->
+  <!-- projects.yaml -->
+  <rect x="28" y="78" width="168" height="64" rx="8" fill="#f8f9f6" stroke="#c9ccc6"/>
+  <text x="112" y="106" class="mono" font-size="14" fill="#000000" text-anchor="middle">projects.yaml</text>
+  <text x="112" y="126" class="mono" font-size="11" fill="#000000" fill-opacity="0.55" text-anchor="middle">config</text>
+
+  <line x1="196" y1="110" x2="224" y2="110" stroke="#06989a" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- ingest.py -->
+  <rect x="224" y="78" width="168" height="64" rx="8" fill="#f8f9f6" stroke="#06989a"/>
+  <text x="308" y="106" class="mono" font-size="14" fill="#06989a" text-anchor="middle">ingest.py</text>
+  <text x="308" y="126" class="mono" font-size="11" fill="#000000" fill-opacity="0.55" text-anchor="middle">Anthropic</text>
+
+  <line x1="392" y1="110" x2="420" y2="110" stroke="#06989a" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- kb/*.md -->
+  <rect x="420" y="78" width="168" height="64" rx="8" fill="#f8f9f6" stroke="#c9ccc6"/>
+  <text x="504" y="106" class="mono" font-size="14" fill="#000000" text-anchor="middle">kb/*.md</text>
+  <text x="504" y="126" class="mono" font-size="11" fill="#000000" fill-opacity="0.55" text-anchor="middle">you edit</text>
+
+  <line x1="588" y1="110" x2="616" y2="110" stroke="#06989a" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- index.py -->
+  <rect x="616" y="78" width="168" height="64" rx="8" fill="#f8f9f6" stroke="#06989a"/>
+  <text x="700" y="106" class="mono" font-size="14" fill="#06989a" text-anchor="middle">index.py</text>
+  <text x="700" y="126" class="mono" font-size="11" fill="#000000" fill-opacity="0.55" text-anchor="middle">local embeds</text>
+
+  <line x1="784" y1="110" x2="812" y2="110" stroke="#06989a" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- ChromaDB -->
+  <rect x="812" y="78" width="188" height="64" rx="8" fill="#f8f9f6" stroke="#4e9a06"/>
+  <text x="906" y="106" class="mono" font-size="14" fill="#4e9a06" text-anchor="middle">ChromaDB</text>
+  <text x="906" y="126" class="mono" font-size="11" fill="#000000" fill-opacity="0.55" text-anchor="middle">local · all-MiniLM-L6-v2</text>
+
+  <!-- down rail from ChromaDB into the agent shell -->
+  <path d="M 906 142 V 188 H 560 V 210" fill="none" stroke="#888a85" stroke-width="1.5" marker-end="url(#arr-muted)"/>
+
+  <!-- section: agent -->
+  <text x="28" y="200" class="mono" font-size="11" letter-spacing="1.5" fill="#06989a">AGENT</text>
+  <line x1="80" y1="196" x2="1092" y2="196" stroke="#c9ccc6" stroke-dasharray="2 4"/>
+
+  <!-- agent shell -->
+  <rect x="28" y="214" width="1064" height="118" rx="10" fill="#f8f9f6" stroke="#c9ccc6"/>
+  <text x="48" y="240" class="mono" font-size="14" fill="#000000">agent.py</text>
+  <text x="140" y="240" class="mono" font-size="12" fill="#000000" fill-opacity="0.55">Claude tool-use loop</text>
+  <text x="1072" y="240" class="mono" font-size="11" fill="#000000" fill-opacity="0.4" text-anchor="end">agent/tools.py</text>
+
+  <!-- four tools -->
+  <!-- search_kb -->
+  <rect x="48" y="256" width="230" height="56" rx="8" fill="#ffffff" stroke="#4e9a06"/>
+  <text x="163" y="280" class="mono" font-size="13" fill="#4e9a06" text-anchor="middle">search_kb</text>
+  <text x="163" y="298" class="mono" font-size="11" fill="#000000" fill-opacity="0.55" text-anchor="middle">local · RAG</text>
+
+  <!-- list_projects -->
+  <rect x="294" y="256" width="230" height="56" rx="8" fill="#ffffff" stroke="#4e9a06"/>
+  <text x="409" y="280" class="mono" font-size="13" fill="#4e9a06" text-anchor="middle">list_projects</text>
+  <text x="409" y="298" class="mono" font-size="11" fill="#000000" fill-opacity="0.55" text-anchor="middle">local · projects.yaml</text>
+
+  <!-- classify_snippet -->
+  <rect x="540" y="256" width="250" height="56" rx="8" fill="#ffffff" stroke="#c4a000"/>
+  <text x="665" y="280" class="mono" font-size="13" fill="#c4a000" text-anchor="middle">classify_snippet</text>
+  <text x="665" y="298" class="mono" font-size="11" fill="#000000" fill-opacity="0.55" text-anchor="middle">HTTP seam</text>
+
+  <!-- search_notes -->
+  <rect x="806" y="256" width="260" height="56" rx="8" fill="#ffffff" stroke="#c4a000"/>
+  <text x="936" y="280" class="mono" font-size="13" fill="#c4a000" text-anchor="middle">search_notes</text>
+  <text x="936" y="298" class="mono" font-size="11" fill="#000000" fill-opacity="0.55" text-anchor="middle">HTTP seam</text>
+
+  <!-- HTTP rails down -->
+  <line x1="665" y1="312" x2="665" y2="360" stroke="#c4a000" stroke-width="1.5" marker-end="url(#arr-http)"/>
+  <line x1="936" y1="312" x2="936" y2="348" stroke="#c4a000" stroke-width="1.5"/>
+  <path d="M 936 348 H 951" fill="none" stroke="#c4a000" stroke-width="1.5"/>
+  <line x1="951" y1="348" x2="951" y2="360" stroke="#c4a000" stroke-width="1.5" marker-end="url(#arr-http)"/>
+
+  <!-- section: HTTP seams -->
+  <text x="28" y="358" class="mono" font-size="11" letter-spacing="1.5" fill="#c4a000">HTTP SEAMS</text>
+  <line x1="122" y1="354" x2="520" y2="354" stroke="#c9ccc6" stroke-dasharray="2 4"/>
+  <line x1="800" y1="354" x2="1092" y2="354" stroke="#c9ccc6" stroke-dasharray="2 4"/>
+
+  <!-- defense-news-classifier (centered under classify_snippet) -->
+  <rect x="510" y="368" width="310" height="64" rx="8" fill="#f8f9f6" stroke="#c4a000"/>
+  <text x="665" y="396" class="mono" font-size="13" fill="#000000" text-anchor="middle">defense-news-classifier</text>
+  <text x="665" y="416" class="mono" font-size="11" fill="#c4a000" text-anchor="middle">POST /classify</text>
+
+  <!-- notes-api (centered under search_notes) -->
+  <rect x="836" y="368" width="230" height="64" rx="8" fill="#f8f9f6" stroke="#c4a000"/>
+  <text x="951" y="396" class="mono" font-size="13" fill="#000000" text-anchor="middle">notes-api</text>
+  <text x="951" y="416" class="mono" font-size="11" fill="#c4a000" text-anchor="middle">GET /notes</text>
+
+  <!-- legend -->
+  <g class="mono" font-size="11">
+    <rect x="28" y="392" width="10" height="10" rx="2" fill="none" stroke="#06989a"/>
+    <text x="46" y="401" fill="#000000" fill-opacity="0.55">script</text>
+    <rect x="100" y="392" width="10" height="10" rx="2" fill="none" stroke="#4e9a06"/>
+    <text x="118" y="401" fill="#000000" fill-opacity="0.55">local</text>
+    <rect x="168" y="392" width="10" height="10" rx="2" fill="none" stroke="#c4a000"/>
+    <text x="186" y="401" fill="#000000" fill-opacity="0.55">HTTP</text>
+  </g>
+</svg>
