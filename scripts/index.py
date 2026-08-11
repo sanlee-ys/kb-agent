@@ -67,15 +67,17 @@ SCAFFOLDING_DIRNAMES = {"graphify-out"}
 console = Console()
 
 
-def chunk_markdown(text: str) -> list[str]:
+def chunk_markdown(text: str, doc_title: str | None = None) -> list[str]:
     """Split Markdown into chunks, breaking on headings and capping size.
 
     Each heading starts a new chunk, and any section that grows past
     MAX_CHUNK_CHARS is flushed into its own chunk so no single chunk greatly
-    exceeds the budget.
+    exceeds the budget. Prepends document title and parent section header paths
+    (e.g. ``[Document: kb-agent.md > Tech Stack]``) to chunk text before embedding.
 
     Args:
         text: The full Markdown text of one KB file.
+        doc_title: Optional document title or filename (e.g. "kb-agent.md").
 
     Returns:
         The non-empty, stripped chunks in document order.
@@ -83,21 +85,73 @@ def chunk_markdown(text: str) -> list[str]:
     chunks: list[str] = []
     current: list[str] = []
     current_len = 0
+    heading_stack: list[tuple[int, str]] = []
+    chunk_headers: list[tuple[int, str]] = []
+
+    def format_prefix(headers: list[tuple[int, str]]) -> str:
+        effective_title = doc_title
+        sec_headers: list[str] = []
+        doc_stem = Path(effective_title).stem.lower() if effective_title else None
+
+        for lvl, title in headers:
+            title_clean = title.strip()
+            if effective_title is None:
+                effective_title = title_clean
+                doc_stem = Path(effective_title).stem.lower()
+            else:
+                if lvl == 1 and (
+                    title_clean.lower() == effective_title.lower()
+                    or (doc_stem and title_clean.lower() == doc_stem)
+                ):
+                    continue
+                sec_headers.append(title_clean)
+
+        if not effective_title:
+            if sec_headers:
+                path_str = " > ".join(sec_headers)
+                return f"[Document: {path_str}]"
+            return ""
+
+        if sec_headers:
+            path_str = f"{effective_title} > {' > '.join(sec_headers)}"
+        else:
+            path_str = effective_title
+
+        return f"[Document: {path_str}]"
 
     def flush() -> None:
-        nonlocal current, current_len
+        nonlocal current, current_len, chunk_headers
         if current:
             joined = "\n".join(current).strip()
             if joined:
+                prefix = format_prefix(chunk_headers)
+                if prefix:
+                    joined = f"{prefix}\n{joined}"
                 chunks.append(joined)
             current = []
             current_len = 0
 
     for line in text.splitlines():
-        is_heading = line.startswith("#")
-        # Start a fresh chunk at a heading boundary or when we're over budget.
-        if (is_heading and current) or current_len >= MAX_CHUNK_CHARS:
+        strip_line = line.strip()
+        is_heading = strip_line.startswith("#")
+
+        if is_heading:
+            hash_count = len(strip_line) - len(strip_line.lstrip("#"))
+            heading_text = strip_line.lstrip("#").strip()
+
+            if current:
+                flush()
+
+            while heading_stack and heading_stack[-1][0] >= hash_count:
+                heading_stack.pop()
+            heading_stack.append((hash_count, heading_text))
+            chunk_headers = list(heading_stack)
+        elif current_len >= MAX_CHUNK_CHARS:
             flush()
+
+        if not current:
+            chunk_headers = list(heading_stack)
+
         current.append(line)
         current_len += len(line) + 1
 
@@ -119,7 +173,7 @@ def is_note_scaffolding(md_file: Path, notes_dir: Path) -> bool:
         True if the file should be excluded from the notes index.
     """
     relative = md_file.relative_to(notes_dir)
-    if any(part.lower() in SCAFFOLDING_DIRNAMES for part in relative.parts[:-1]):
+    if any(part.startswith(".") or part.lower() in SCAFFOLDING_DIRNAMES for part in relative.parts[:-1]):
         return True
     return relative.name.lower() in SCAFFOLDING_FILENAMES
 
@@ -213,8 +267,9 @@ def collect_notes_from_api() -> tuple[list[str], list[dict], list[str]]:
         if not isinstance(note, dict):
             continue
         note_id = note.get("id", "unknown")
+        note_title = str(note.get("title", "Untitled"))
         text = _note_to_markdown(note)
-        for i, chunk in enumerate(chunk_markdown(text)):
+        for i, chunk in enumerate(chunk_markdown(text, doc_title=note_title)):
             documents.append(chunk)
             metadatas.append(
                 {"source": f"notes-api/note/{note_id}", "kind": "notes", "name": str(note_id)}
@@ -240,7 +295,7 @@ def _add_file(
 ) -> None:
     """Chunk one Markdown file and append its chunks to the parallel arrays."""
     text = md_file.read_text(encoding="utf-8")
-    for i, chunk in enumerate(chunk_markdown(text)):
+    for i, chunk in enumerate(chunk_markdown(text, doc_title=md_file.name)):
         documents.append(chunk)
         metadatas.append({"source": source, "kind": kind, "name": md_file.stem})
         ids.append(f"{kind}/{md_file.stem}#{i}")

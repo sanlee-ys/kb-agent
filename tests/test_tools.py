@@ -17,6 +17,7 @@ import httpx
 
 import agent.tools as tools
 from agent.tools import (
+    _infer_kind,
     _project_endpoint,
     classify_snippet,
     execute_tool,
@@ -447,3 +448,14 @@ def test_search_notes_non_note_elements_is_error(tmp_path, monkeypatch):
     data = _obs(search_notes("x"))
     assert data["status"] == "error"
     assert "aren't note objects" in data["summary"]
+
+
+def test_infer_kind_heuristics():
+    assert _infer_kind("what does the notes-api project depend on") == "projects"
+    assert _infer_kind("how does the classifier handle predictions") == "projects"
+    assert _infer_kind("what shape do the agent's tool results take") == "projects"
+    assert _infer_kind("which library provides BM25 ranking") == "libraries"
+    assert _infer_kind("what server runs a FastAPI app and speaks ASGI") == "libraries"
+    assert _infer_kind("how do embeddings and vector stores work") == "notes"
+    assert _infer_kind("what is eval-driven development") == "notes"
+    assert _infer_kind("something completely random with no clear intent") is None
