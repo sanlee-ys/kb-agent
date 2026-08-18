@@ -680,10 +680,10 @@ def classify_snippet(text: str) -> str:
         )
 
     # A 200 is necessary but not sufficient: the body must honor the frozen
-    # /classify contract (SYS-004) — a JSON object carrying both `category` and
-    # `operational_domain`. Parse defensively so a malformed/contract-violating
-    # 200 surfaces as a clean error observation instead of a raw KeyError/
-    # ValueError escaping the tool.
+    # /classify contract (SYS-004) — a JSON object carrying `category`,
+    # `operational_domain` and `region`. Parse defensively so a malformed or
+    # contract-violating 200 surfaces as a clean error observation instead of a
+    # raw KeyError/ValueError escaping the tool.
     try:
         data = response.json()
     except ValueError:
@@ -943,8 +943,9 @@ TOOLS = [
     {
         "name": "classify_snippet",
         "description": (
-            "Classify a short defense-news snippet into a category and an "
-            "operational domain by calling the defense-news-classifier service. "
+            "Classify a short defense-news snippet into a category, an "
+            "operational domain and a region by calling the "
+            "defense-news-classifier service. "
             "Call this when the user wants a news snippet actually labeled or "
             "classified, not just described."
         ),
