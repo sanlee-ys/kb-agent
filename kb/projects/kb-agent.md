@@ -17,7 +17,7 @@ Protocol server (`mcp_server/server.py`).
 - **chromadb** — local, embedded (`PersistentClient`, never HTTP/server mode)
   vector store for `search_kb`, using the built-in `all-MiniLM-L6-v2` model —
   no API key, no network.
-- **mcp** — the official Python MCP SDK. `mcp_server/server.py` is a `FastMCP`
+- **mcp** — the official Python MCP SDK. `mcp_server/server.py` is an `MCPServer`
   stdio server exposing `search_kb` and `list_projects` to any MCP host
   (Claude Code, Claude Desktop). It's a transport adapter, not a second
   implementation: it calls the same functions in `agent/tools.py` and returns
