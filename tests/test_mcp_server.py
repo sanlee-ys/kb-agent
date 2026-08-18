@@ -1,9 +1,9 @@
 """Tests for the MCP server — a real protocol round-trip, no subprocess, no network.
 
-``create_connected_server_and_client_session`` wires an MCP client to our server
-over an in-memory transport, so these tests exercise the actual initialize /
-``tools/list`` / ``tools/call`` message flow rather than calling the Python
-functions directly. That's the part a wrapper can plausibly get wrong.
+``mcp.client.Client`` wires an MCP client to our server over an in-memory
+transport, so these tests exercise the actual initialize / ``tools/list`` /
+``tools/call`` message flow rather than calling the Python functions directly.
+That's the part a wrapper can plausibly get wrong.
 
 The tests are ``async`` but the suite has no async plugin installed. Rather than
 add ``pytest-asyncio`` just for this file, each test is a sync function that hands
@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 
 import anyio
-from mcp.shared.memory import create_connected_server_and_client_session
+from mcp.client import Client
 from mcp.types import TextContent
 
 import agent.tools as tools
@@ -30,7 +30,7 @@ from tests.test_tools import _obs
 
 def _connect():
     """Open an in-memory client session against the kb-agent MCP server."""
-    return create_connected_server_and_client_session(mcp._mcp_server)
+    return Client(mcp)
 
 
 def _text(result) -> str:
@@ -57,7 +57,7 @@ def test_lists_the_two_local_tools():
                 assert tool.description == expected[name]
 
             # search_kb's generated schema keeps `query` required and the kind enum.
-            schema = by_name["search_kb"].inputSchema
+            schema = by_name["search_kb"].input_schema
             assert schema["required"] == ["query"]
             assert "projects" in json.dumps(schema)
 
@@ -75,7 +75,7 @@ def test_list_projects_round_trips_the_observation_contract(monkeypatch, tmp_pat
     async def scenario():
         async with _connect() as session:
             result = await session.call_tool("list_projects", {})
-            assert result.isError is False
+            assert result.is_error is False
             data = _obs(_text(result))
             assert data["status"] == "success"
             assert data["payload"] == [{"name": "alpha", "description": "First project"}]
@@ -95,7 +95,7 @@ def test_tool_failure_is_an_observation_not_a_protocol_error(monkeypatch, tmp_pa
     async def scenario():
         async with _connect() as session:
             result = await session.call_tool("list_projects", {})
-            assert result.isError is False
+            assert result.is_error is False
             data = _obs(_text(result))
             assert data["status"] == "warning"
             assert data["next_actions"]
@@ -112,7 +112,7 @@ def test_search_kb_forwards_arguments():
             result = await session.call_tool(
                 "search_kb", {"query": "vector store", "kind": "libraries", "n_results": 3}
             )
-            assert result.isError is False
+            assert result.is_error is False
             return result
 
     import mcp_server.server as server
@@ -139,6 +139,6 @@ def test_search_kb_rejects_an_out_of_range_n_results():
     async def scenario():
         async with _connect() as session:
             result = await session.call_tool("search_kb", {"query": "x", "n_results": 999})
-            assert result.isError is True
+            assert result.is_error is True
 
     anyio.run(scenario)

@@ -118,7 +118,7 @@ projects.yaml → ingest.py → kb/*.md → index.py → chroma_db/ → tools.se
    rebuilds a fresh `KBAgent` from the `{"role","content"}` history (text answers only —
    per-turn tool calls are not replayed).
 6. **`mcp_server/server.py`** is a **second transport over the same tools**, not a second
-   implementation: a `FastMCP` server (stdio) that exposes the two *local* tools,
+   implementation: an `MCPServer` server (stdio) that exposes the two *local* tools,
    `search_kb` and `list_projects`, to any MCP host. It calls `agent/tools.py` and returns
    its SYS-003 observation JSON **unchanged**, and it reads the tool descriptions out of
    `TOOLS` rather than retyping them. The HTTP-seam tools are deliberately excluded — they

@@ -29,7 +29,7 @@ import sys
 from pathlib import Path
 from typing import Annotated, Literal
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from pydantic import Field
 
 # This module lives one level down, and an MCP host launches it by absolute path
@@ -51,7 +51,7 @@ _DESCRIPTIONS = {tool["name"]: tool["description"] for tool in TOOLS}
 # `instructions` reaches the host during initialize. Spend it on the one thing a
 # client can't infer from the tool schemas: results are SYS-003 observations, so
 # branch on `status` instead of parsing prose.
-mcp = FastMCP(
+mcp = MCPServer(
     "kb-agent",
     instructions=(
         "Searches a developer's personal knowledge base of projects, their "
