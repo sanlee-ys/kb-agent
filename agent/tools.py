@@ -229,7 +229,9 @@ def _lexical_index(collection) -> _LexicalIndex | None:
     return _LEXICAL_CACHE
 
 
-def _lexical_ranking(index: _LexicalIndex, query: str, kind: str | None, limit: int) -> list[str]:
+def _lexical_ranking(
+    index: _LexicalIndex, query: str, kind: str | None, limit: int
+) -> list[str]:
     """Rank chunk ids by BM25 score, highest first.
 
     Chunks scoring zero (no query term occurs in them) are dropped rather than
@@ -429,7 +431,9 @@ def search_kb(
     where = {"kind": kind_filter} if kind_filter else None
 
     # Dense-only needs exactly n_results; hybrid needs a deeper pool to fuse.
-    depth = max(n_results * CANDIDATE_MULTIPLIER, MIN_CANDIDATES) if use_hybrid else n_results
+    depth = (
+        max(n_results * CANDIDATE_MULTIPLIER, MIN_CANDIDATES) if use_hybrid else n_results
+    )
     results = collection.query(query_texts=[query], n_results=depth, where=where)
 
     ids = results.get("ids", [[]])[0]
@@ -466,7 +470,10 @@ def search_kb(
             next_actions.append(f"Drop the kind={kind!r} filter to search all kinds.")
         return _problem("warning", f"No KB results for {query!r}.", next_actions)
 
-    chunks = [{"source": meta["source"], "text": doc} for doc, meta in zip(documents, metadatas)]
+    chunks = [
+        {"source": meta["source"], "text": doc}
+        for doc, meta in zip(documents, metadatas)
+    ]
     return _success(
         f"{len(chunks)} matching chunk(s).",
         payload=chunks,
@@ -499,7 +506,9 @@ def list_projects() -> str:
         {"name": p["name"], "description": p.get("description", "(no description)")}
         for p in projects
     ]
-    return _success(f"{len(payload)} tracked project(s).", payload=payload, source="projects.yaml")
+    return _success(
+        f"{len(payload)} tracked project(s).", payload=payload, source="projects.yaml"
+    )
 
 
 CLASSIFIER_PROJECT = "defense-news-classifier"
@@ -549,7 +558,9 @@ def _is_allowed_host(host: str) -> bool:
     before doing so.
     """
     extra = {
-        h.strip().lower() for h in os.environ.get("KB_ALLOWED_HOSTS", "").split(",") if h.strip()
+        h.strip().lower()
+        for h in os.environ.get("KB_ALLOWED_HOSTS", "").split(",")
+        if h.strip()
     }
     host_l = host.lower()
     if host_l == "localhost" or host_l in extra:
@@ -582,7 +593,9 @@ def _validate_endpoint(name: str, endpoint: str) -> str | None:
     elif not parsed.hostname:
         reason = "the URL has no host"
     elif not _is_allowed_host(parsed.hostname):
-        reason = f"host {parsed.hostname!r} is not loopback and not in KB_ALLOWED_HOSTS"
+        reason = (
+            f"host {parsed.hostname!r} is not loopback and not in KB_ALLOWED_HOSTS"
+        )
     else:
         return None
     return _problem(
@@ -686,7 +699,9 @@ def classify_snippet(text: str) -> str:
         )
 
     missing = [
-        key for key in CLASSIFY_REQUIRED_FIELDS if not isinstance(data, dict) or key not in data
+        key
+        for key in CLASSIFY_REQUIRED_FIELDS
+        if not isinstance(data, dict) or key not in data
     ]
     if missing:
         return _problem(
@@ -703,7 +718,8 @@ def classify_snippet(text: str) -> str:
         )
 
     return _success(
-        f"Classified as {data['category']} / {data['operational_domain']} / {data['region']}.",
+        f"Classified as {data['category']} / {data['operational_domain']} / "
+        f"{data['region']}.",
         payload={
             "category": data["category"],
             "operational_domain": data["operational_domain"],
@@ -810,7 +826,8 @@ def search_notes(query: str | None = None, tag: str | None = None) -> str:
     except ValueError:
         return _problem(
             "error",
-            f"The {NOTES_PROJECT} service returned HTTP 200 with a body that isn't valid JSON.",
+            f"The {NOTES_PROJECT} service returned HTTP 200 with a body that isn't "
+            "valid JSON.",
             [
                 f"Service body: {response.text}",
                 "This is a service-side problem, not a usage problem. Stop and "
