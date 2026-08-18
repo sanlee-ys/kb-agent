@@ -173,7 +173,9 @@ def is_note_scaffolding(md_file: Path, notes_dir: Path) -> bool:
         True if the file should be excluded from the notes index.
     """
     relative = md_file.relative_to(notes_dir)
-    if any(part.startswith(".") or part.lower() in SCAFFOLDING_DIRNAMES for part in relative.parts[:-1]):
+    if any(
+        part.startswith(".") or part.lower() in SCAFFOLDING_DIRNAMES for part in relative.parts[:-1]
+    ):
         return True
     return relative.name.lower() in SCAFFOLDING_FILENAMES
 

@@ -37,12 +37,17 @@ def test_chunk_markdown_splits_on_headings():
 
 
 def test_chunk_markdown_prepends_parent_header_paths():
-    text = "# kb-agent\nintro\n## Section 1\nbody 1\n### Subsection 1.1\ndetail\n## Section 2\nbody 2"
+    text = (
+        "# kb-agent\nintro\n## Section 1\nbody 1\n### Subsection 1.1\ndetail\n## Section 2\nbody 2"
+    )
     chunks = chunk_markdown(text, doc_title="kb-agent.md")
     assert len(chunks) == 4
     assert chunks[0] == "[Document: kb-agent.md]\n# kb-agent\nintro"
     assert chunks[1] == "[Document: kb-agent.md > Section 1]\n## Section 1\nbody 1"
-    assert chunks[2] == "[Document: kb-agent.md > Section 1 > Subsection 1.1]\n### Subsection 1.1\ndetail"
+    assert (
+        chunks[2]
+        == "[Document: kb-agent.md > Section 1 > Subsection 1.1]\n### Subsection 1.1\ndetail"
+    )
     assert chunks[3] == "[Document: kb-agent.md > Section 2]\n## Section 2\nbody 2"
 
 
