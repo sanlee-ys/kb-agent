@@ -298,6 +298,96 @@ def reciprocal_rank_fusion(rankings: list[list[str]], k: int = RRF_K) -> list[st
     return sorted(first_seen, key=lambda chunk_id: -scores[chunk_id])
 
 
+def _infer_kind(query: str) -> str | None:
+    """Infer the target kind ('projects', 'libraries', 'notes') from query heuristics.
+
+    Args:
+        query: What to search for, in natural language.
+
+    Returns:
+        The inferred kind string ("projects", "libraries", or "notes") when query text
+        clearly targets one of these categories, else None.
+    """
+    q = query.lower()
+
+    # 1. Notes heuristics (explicit concept topics)
+    note_keywords = (
+        "secrets",
+        "api key",
+        "api keys",
+        "concept",
+        "explainer",
+        "learning-notes",
+        "vector store",
+        "vector stores",
+        "eval-driven",
+        "eval driven",
+        "semantic version",
+        "semantic versioning",
+        "database migration",
+        "database migrations",
+        "checkpointing",
+        "model tier",
+        "fan out",
+        "fan-out",
+        "rag",
+        "using my own docs",
+        "using my own documents",
+    )
+    if any(kw in q for kw in note_keywords):
+        return "notes"
+
+    # 2. Projects heuristics
+    project_keywords = (
+        "project",
+        "projects",
+        "repo",
+        "repos",
+        "repository",
+        "service",
+        "services",
+        "kb-agent",
+        "kb agent",
+        "defense-news-classifier",
+        "defense news classifier",
+        "classifier",
+        "notes-api",
+        "notes api",
+        "mcp server",
+        "adr-",
+        "label enum",
+        "enriched with tags",
+        "tool results take",
+        "tool fails",
+    )
+    if any(kw in q for kw in project_keywords):
+        return "projects"
+
+    # 3. Libraries heuristics
+    library_keywords = (
+        "library",
+        "libraries",
+        "package",
+        "packages",
+        "dependency",
+        "dependencies",
+        "sdk",
+        "sdks",
+        "pydantic",
+        "sqlalchemy",
+        "uvicorn",
+        "spacy",
+        "rank-bm25",
+        "bm25 ranking",
+        "asgi",
+        "type annotations",
+    )
+    if any(kw in q for kw in library_keywords):
+        return "libraries"
+
+    return None
+
+
 def search_kb(
     query: str,
     kind: str | None = None,
@@ -314,7 +404,8 @@ def search_kb(
     Args:
         query: What to search for, in natural language.
         kind: Optional filter — ``"projects"``, ``"libraries"``, or ``"notes"``.
-            Any other value (or None) searches all kinds.
+            Any other value (or None) searches all kinds. If omitted or invalid,
+            query intent auto-routing heuristics infer kind when applicable.
         n_results: Maximum number of chunks to return.
         hybrid: Force the retrieval mode. None (the default, and what every
             model-facing caller passes) uses the ``HYBRID_RETRIEVAL`` default.
@@ -335,7 +426,8 @@ def search_kb(
         )
 
     use_hybrid = HYBRID_RETRIEVAL if hybrid is None else hybrid
-    kind_filter = kind if kind in KINDS else None
+    effective_kind = kind if kind in KINDS else _infer_kind(query)
+    kind_filter = effective_kind if effective_kind in KINDS else None
     where = {"kind": kind_filter} if kind_filter else None
 
     # Dense-only needs exactly n_results; hybrid needs a deeper pool to fuse.
@@ -347,6 +439,15 @@ def search_kb(
     ids = results.get("ids", [[]])[0]
     documents = results.get("documents", [[]])[0]
     metadatas = results.get("metadatas", [[]])[0]
+
+    # Fallback to unfiltered search if auto-routed filter yielded no documents
+    if not documents and kind not in KINDS and kind_filter is not None:
+        where = None
+        kind_filter = None
+        results = collection.query(query_texts=[query], n_results=depth, where=where)
+        ids = results.get("ids", [[]])[0]
+        documents = results.get("documents", [[]])[0]
+        metadatas = results.get("metadatas", [[]])[0]
 
     if use_hybrid:
         index = _lexical_index(collection)
