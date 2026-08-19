@@ -79,6 +79,57 @@ def test_search_kb_not_indexed_is_error_with_recovery(tmp_path, monkeypatch):
     assert any("index.py" in a for a in data["next_actions"])
 
 
+class _FakeCollection:
+    """Records the n_results each query() call receives; returns one canned chunk.
+
+    Lets the clamp tests read the value search_kb actually sends to ChromaDB —
+    the empirical failure was ChromaDB answering n_results=999 with the whole
+    collection, so the assertion has to sit on that argument, not on the model
+    output shape.
+    """
+
+    def __init__(self):
+        self.queried_n_results: list[int] = []
+
+    def query(self, query_texts, n_results, where=None):
+        self.queried_n_results.append(n_results)
+        return {
+            "ids": [["c1"]],
+            "documents": [["some chunk text"]],
+            "metadatas": [[{"source": "kb/projects/x.md", "kind": "projects"}]],
+        }
+
+
+def test_search_kb_clamps_oversized_n_results(monkeypatch):
+    # The MCP wrapper bounds n_results 1-25; the Anthropic tool-use path used to
+    # forward the raw model value, and ChromaDB returns the whole collection for
+    # n_results=999. The tool itself must enforce the documented contract.
+    fake = _FakeCollection()
+    monkeypatch.setattr(tools, "_get_collection", lambda: fake)
+    data = _obs(search_kb("anything at all", n_results=999))
+    assert data["status"] == "success"
+    assert len(data["payload"]) <= 25
+    assert fake.queried_n_results == [25]
+
+
+def test_search_kb_clamps_zero_and_negative_n_results(monkeypatch):
+    fake = _FakeCollection()
+    monkeypatch.setattr(tools, "_get_collection", lambda: fake)
+    for bad in (0, -3):
+        data = _obs(search_kb("anything at all", n_results=bad))
+        assert data["status"] == "success"
+        assert len(data["payload"]) == 1
+    assert fake.queried_n_results == [1, 1]
+
+
+def test_search_kb_passes_in_range_n_results_through(monkeypatch):
+    fake = _FakeCollection()
+    monkeypatch.setattr(tools, "_get_collection", lambda: fake)
+    data = _obs(search_kb("anything at all", n_results=7))
+    assert data["status"] == "success"
+    assert fake.queried_n_results == [7]
+
+
 def test_project_endpoint_found(tmp_path, monkeypatch):
     _write_projects(
         tmp_path,
@@ -459,3 +510,17 @@ def test_infer_kind_heuristics():
     assert _infer_kind("how do embeddings and vector stores work") == "notes"
     assert _infer_kind("what is eval-driven development") == "notes"
     assert _infer_kind("something completely random with no clear intent") is None
+
+
+def test_infer_kind_matches_whole_words_not_substrings():
+    # "rag" used to match by substring inside "storage"/"paragraph"/"fragment",
+    # force-routing unrelated queries to kind="notes". Keywords must match on
+    # word boundaries.
+    assert _infer_kind("what does notes-api use for local storage") == "projects"
+    assert _infer_kind("summarize this long paragraph") is None
+    assert _infer_kind("where did that html fragment come from") is None
+    # A genuine whole-word mention still routes.
+    assert _infer_kind("how does rag work here") == "notes"
+    # Multi-word and punctuation-edged keywords keep working.
+    assert _infer_kind("where do api keys belong") == "notes"
+    assert _infer_kind("what did adr-010 decide") == "projects"

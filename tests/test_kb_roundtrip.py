@@ -123,6 +123,19 @@ def test_search_kb_kind_filter_scopes_results(indexed_kb):
 
 
 @pytest.mark.integration
+def test_search_kb_oversized_n_results_is_clamped(indexed_kb):
+    """n_results far above the 1-25 contract still round-trips cleanly.
+
+    Before the clamp, the raw value reached ChromaDB and it answered with the
+    whole collection. Now the query runs with the clamped value and returns at
+    most 25 chunks.
+    """
+    data = _assert_sys003(tools.search_kb("drone contract procurement", n_results=999))
+    assert data["status"] == "success"
+    assert len(data["payload"]) <= 25
+
+
+@pytest.mark.integration
 def test_incremental_reindex_updates_changed_and_drops_deleted(tmp_path, monkeypatch):
     """A second index run reflects edits/deletes/adds without a full rebuild.
 

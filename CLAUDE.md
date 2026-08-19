@@ -86,7 +86,9 @@ projects.yaml → ingest.py → kb/*.md → index.py → chroma_db/ → tools.se
    tracks *project* stubs only — library stubs are generated from a package name, not a
    source file, so they can't drift against one.
 2. **`scripts/index.py`** chunks every `kb/**/*.md` (splits on Markdown headings,
-   caps chunks at ~1200 chars) and embeds them into a persistent ChromaDB collection
+   caps chunks at ~1200 chars), prepends each chunk's header path (e.g.
+   `[Document: kb-agent.md > Tech Stack]`) to its text before it embeds, and
+   embeds them into a persistent ChromaDB collection
    `knowledge_base` using the **built-in local `all-MiniLM-L6-v2` model — no API key,
    no network**. It updates **incrementally by default**: it diffs the freshly-collected
    chunks against the persisted collection (the collection itself is the record of what
@@ -96,7 +98,10 @@ projects.yaml → ingest.py → kb/*.md → index.py → chroma_db/ → tools.se
    scratch (the escape hatch). Chunk metadata carries `source` (repo-relative path),
    `kind` (`projects`/`libraries`/`notes`), and `name`.
 3. **`agent/tools.py`** exposes four tools to the model: `search_kb(query, kind?,
-   n_results?)` (query over ChromaDB, optional `kind` filter) and
+   n_results?)` (query over ChromaDB, optional `kind` filter; when `kind` is
+   omitted or invalid, `search_kb` infers a kind from the query text when it
+   can, and an inferred filter that returns zero hits falls back to an
+   unfiltered search; `n_results` is clamped to 1-25) and
    `list_projects()` (reads `projects.yaml`) are both local; the other two are
    cross-repo HTTP seams (base URLs from `projects.yaml`, not hardcoded) so the agent
    *drives* / *reads* tracked services rather than just describing them:

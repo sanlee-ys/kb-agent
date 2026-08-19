@@ -107,7 +107,7 @@ Any MCP host can search the KB through this server. The server calls
 
 | Tool | Arguments | What it does |
 | --- | --- | --- |
-| `search_kb` | `query`, `kind?` (`projects`\|`libraries`\|`notes`), `n_results?` (1–25, default 5) | Semantic search over the local ChromaDB index; returns matching chunks with their `source` files. |
+| `search_kb` | `query`, `kind?` (`projects`\|`libraries`\|`notes`), `n_results?` (1–25, default 5) | Semantic search over the local ChromaDB index; returns matching chunks with their `source` files. When `kind` is omitted, the tool infers a kind from the query text when it can; an inferred filter with zero hits falls back to an unfiltered search. |
 | `list_projects` | — | Lists the projects tracked in `projects.yaml`. |
 
 The server exposes only the two local tools. `classify_snippet` and
