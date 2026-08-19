@@ -52,6 +52,7 @@ results via ``_success()`` / ``_problem()`` so the shape lives in one place.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import ipaddress
 import json
@@ -71,6 +72,14 @@ PROJECTS_FILE = REPO_ROOT / "projects.yaml"
 CHROMA_DIR = REPO_ROOT / "chroma_db"
 COLLECTION_NAME = "knowledge_base"
 KINDS = ("projects", "libraries", "notes")
+
+# The n_results contract for search_kb: 1-25, default 5. The MCP wrapper
+# (mcp_server/server.py) rejects out-of-range values at the protocol layer
+# (Field(ge=1, le=25)), but the Anthropic tool-use path has no such layer, so
+# search_kb clamps the value itself. Keep these three surfaces in agreement:
+# this clamp, the MCP Field bounds, and the TOOLS input_schema below.
+N_RESULTS_MIN = 1
+N_RESULTS_MAX = 25
 
 # --- Retrieval mode (kb-agent/ADR-010) ---------------------------------------
 # search_kb can retrieve dense-only (ChromaDB / all-MiniLM-L6-v2) or hybrid
@@ -296,8 +305,27 @@ def reciprocal_rank_fusion(rankings: list[list[str]], k: int = RRF_K) -> list[st
     return sorted(first_seen, key=lambda chunk_id: -scores[chunk_id])
 
 
+@functools.cache
+def _keyword_pattern(keyword: str) -> re.Pattern[str]:
+    r"""Compile a whole-word pattern for one _infer_kind keyword.
+
+    Substring matching caused false routes: "rag" occurs inside "storage" and
+    "paragraph", which force-routed unrelated queries to kind="notes". Anchor
+    each keyword edge with ``\b`` when that edge is a word character, so a
+    keyword only matches as a whole token (or whole phrase). Edges that are not
+    word characters (e.g. the trailing hyphen in "adr-") get no anchor, because
+    ``\b`` there would demand an adjacent word character on the wrong side.
+    """
+    prefix = r"\b" if re.match(r"\w", keyword) else ""
+    suffix = r"\b" if re.search(r"\w\Z", keyword) else ""
+    return re.compile(prefix + re.escape(keyword) + suffix)
+
+
 def _infer_kind(query: str) -> str | None:
     """Infer the target kind ('projects', 'libraries', 'notes') from query heuristics.
+
+    Keywords match on word boundaries, not substrings, so e.g. "rag" matches
+    "how does rag work" but not "local storage".
 
     Args:
         query: What to search for, in natural language.
@@ -332,7 +360,7 @@ def _infer_kind(query: str) -> str | None:
         "using my own docs",
         "using my own documents",
     )
-    if any(kw in q for kw in note_keywords):
+    if any(_keyword_pattern(kw).search(q) for kw in note_keywords):
         return "notes"
 
     # 2. Projects heuristics
@@ -358,7 +386,7 @@ def _infer_kind(query: str) -> str | None:
         "tool results take",
         "tool fails",
     )
-    if any(kw in q for kw in project_keywords):
+    if any(_keyword_pattern(kw).search(q) for kw in project_keywords):
         return "projects"
 
     # 3. Libraries heuristics
@@ -380,7 +408,7 @@ def _infer_kind(query: str) -> str | None:
         "asgi",
         "type annotations",
     )
-    if any(kw in q for kw in library_keywords):
+    if any(_keyword_pattern(kw).search(q) for kw in library_keywords):
         return "libraries"
 
     return None
@@ -404,7 +432,10 @@ def search_kb(
         kind: Optional filter — ``"projects"``, ``"libraries"``, or ``"notes"``.
             Any other value (or None) searches all kinds. If omitted or invalid,
             query intent auto-routing heuristics infer kind when applicable.
-        n_results: Maximum number of chunks to return.
+        n_results: Maximum number of chunks to return. Clamped to the
+            ``N_RESULTS_MIN``..``N_RESULTS_MAX`` (1-25) contract range, so an
+            out-of-range value from the model degrades to the nearest bound
+            instead of dumping the whole collection.
         hybrid: Force the retrieval mode. None (the default, and what every
             model-facing caller passes) uses the ``HYBRID_RETRIEVAL`` default.
             Deliberately absent from the ``TOOLS`` schema: it is an evaluation
@@ -422,6 +453,11 @@ def search_kb(
             "The knowledge base has not been indexed yet.",
             ["Run scripts/index.py to build the index, then retry this search."],
         )
+
+    # Enforce the documented 1-25 contract here, not only in the MCP wrapper:
+    # the Anthropic tool-use path forwards the model's raw value, and ChromaDB
+    # answers n_results=999 with the entire collection.
+    n_results = max(N_RESULTS_MIN, min(n_results, N_RESULTS_MAX))
 
     use_hybrid = HYBRID_RETRIEVAL if hybrid is None else hybrid
     effective_kind = kind if kind in KINDS else _infer_kind(query)
@@ -906,7 +942,9 @@ TOOLS = [
                 },
                 "n_results": {
                     "type": "integer",
-                    "description": "How many chunks to return (default 5).",
+                    "minimum": 1,
+                    "maximum": 25,
+                    "description": "How many chunks to return (1-25, default 5).",
                 },
             },
             "required": ["query"],

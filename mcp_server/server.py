@@ -70,7 +70,14 @@ def search_kb(
     query: Annotated[str, Field(description="What to search for, in natural language.")],
     kind: Annotated[
         Literal["projects", "libraries", "notes"] | None,
-        Field(description="Optional filter: restrict to projects, libraries, or concept notes."),
+        Field(
+            description=(
+                "Optional filter: restrict to projects, libraries, or concept notes. "
+                "When omitted, search_kb infers a kind from the query text when it "
+                "can, and falls back to an unfiltered search if the inferred filter "
+                "returns no hits."
+            )
+        ),
     ] = None,
     n_results: Annotated[
         int, Field(ge=1, le=25, description="How many chunks to return (default 5).")
@@ -81,6 +88,8 @@ def search_kb(
     Args:
         query: What to search for, in natural language.
         kind: Optional filter — ``"projects"``, ``"libraries"``, or ``"notes"``.
+            When omitted, ``agent.tools.search_kb`` infers a kind from the query
+            text when it can, with a zero-hit fallback to an unfiltered search.
         n_results: Maximum number of chunks to return.
 
     Returns:
