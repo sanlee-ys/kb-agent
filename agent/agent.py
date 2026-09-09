@@ -45,6 +45,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # instance with KBAgent(model=...).
 DEFAULT_MODEL = "claude-sonnet-5"
 MAX_TOOL_ITERATIONS = 10  # safety cap on the tool-use loop
+# t7-02 (2026-09-09): the iteration cap bounds rounds, not tool_use blocks in
+# one response. A canned 25-block round executed all 25. This cap refuses the
+# extras and still returns a SYS-003 tool_result for every tool_use id.
+MAX_TOOLS_PER_ROUND = 10
 
 # Prompt-caching breakpoint. The loop re-sends system + tools + the whole growing
 # transcript on every one of its up-to-MAX_TOOL_ITERATIONS passes; marking the stable
@@ -278,34 +282,62 @@ class KBAgent:
                     turn_span.set_attribute("kb_agent.loop.iterations", iteration + 1)
                     return self._final_text(response)
 
-                # Execute every tool the model requested and send results back.
+                # Execute requested tools, up to the per-round cap, and send
+                # results back. Extra tool_use blocks still get a tool_result
+                # so the Messages API contract holds.
                 tool_results = []
+                executed = 0
                 for block in response.content:
-                    if block.type == "tool_use":
-                        with tracer.start_as_current_span(
-                            f"execute_tool {block.name}"
-                        ) as tool_span:
-                            tool_span.set_attribute("gen_ai.operation.name", "execute_tool")
-                            tool_span.set_attribute("gen_ai.tool.name", block.name)
-                            result = execute_tool(block.name, block.input)
-                            if tool_span.is_recording():
-                                tool_span.set_attribute(
-                                    "kb_agent.tool.status", observation_status(result)
-                                )
-                        # search_kb is a retrieval tool: present its hits as
-                        # search_result content blocks so the model cites sources
-                        # automatically. Every other tool's SYS-003 string passes
-                        # through unchanged.
-                        content = (
-                            _search_kb_tool_result_content(result)
-                            if block.name == "search_kb"
-                            else result
+                    if block.type != "tool_use":
+                        continue
+                    if executed >= MAX_TOOLS_PER_ROUND:
+                        tool_results.append(
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": block.id,
+                                "content": json.dumps(
+                                    {
+                                        "status": "error",
+                                        "summary": (
+                                            f"Per-round tool cap ({MAX_TOOLS_PER_ROUND}) "
+                                            "reached. This tool_use was not executed."
+                                        ),
+                                        "next_actions": [
+                                            "Emit at most "
+                                            f"{MAX_TOOLS_PER_ROUND} tool_use blocks "
+                                            "in one response."
+                                        ],
+                                    },
+                                    ensure_ascii=False,
+                                ),
+                            }
                         )
-                        tool_results.append({
+                        continue
+                    executed += 1
+                    with tracer.start_as_current_span(f"execute_tool {block.name}") as tool_span:
+                        tool_span.set_attribute("gen_ai.operation.name", "execute_tool")
+                        tool_span.set_attribute("gen_ai.tool.name", block.name)
+                        result = execute_tool(block.name, block.input)
+                        if tool_span.is_recording():
+                            tool_span.set_attribute(
+                                "kb_agent.tool.status", observation_status(result)
+                            )
+                    # search_kb is a retrieval tool: present its hits as
+                    # search_result content blocks so the model cites sources
+                    # automatically. Every other tool's SYS-003 string passes
+                    # through unchanged.
+                    content = (
+                        _search_kb_tool_result_content(result)
+                        if block.name == "search_kb"
+                        else result
+                    )
+                    tool_results.append(
+                        {
                             "type": "tool_result",
                             "tool_use_id": block.id,
                             "content": content,
-                        })
+                        }
+                    )
                 self.messages.append({"role": "user", "content": tool_results})
 
             turn_span.set_attribute("kb_agent.loop.iterations", MAX_TOOL_ITERATIONS)

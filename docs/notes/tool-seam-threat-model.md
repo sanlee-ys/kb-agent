@@ -142,11 +142,12 @@ instruction becomes legible.
 
 **T7 — Resource exhaustion.** Injected content tries to induce repeated or
 expensive tool calls ("call search_kb 50 times"). **Bounded by
-`MAX_TOOL_ITERATIONS = 10`:** a single turn can't exceed 10 model round-trips,
-and every HTTP call has a finite timeout (30s classify, 10s notes) and stays on
-loopback. Worst case is up to 10 rounds of local/loopback calls in one turn —
-low severity, but still worth one explicit check that the cap holds and that a
-single round can't itself fan out unboundedly.
+`MAX_TOOL_ITERATIONS = 10` and, since 2026-09-09, `MAX_TOOLS_PER_ROUND = 10`:**
+a single turn can't exceed 10 model round-trips, and one round executes at most
+10 `tool_use` blocks (extras get a SYS-003 error `tool_result` and do not run).
+Every HTTP call has a finite timeout (30s classify, 10s notes) and stays on
+loopback. The gold set found the per-round hole (`t7-02`) before the second cap
+landed.
 
 ## Severity, honestly
 
@@ -154,7 +155,7 @@ Given **no write tool** and a **config-derived, SSRF-validated, loopback-pinned
 host**: the realistic worst case today is **answer manipulation and citation
 poisoning (T4)** — not data exfiltration and not destructive action. That
 containment is real and belongs in the eventual writeup as the "good news" an
-alarmist framing would skip. T7 is genuinely low given the 10-iteration cap.
+alarmist framing would skip. T7 is genuinely low given the two caps.
 
 The conditions that raise this ceiling are exactly `SYS-010`'s revisit triggers:
 **if `KB_ALLOWED_HOSTS` is ever widened, or a write-capable tool is ever added**

@@ -51,7 +51,9 @@ note's own "Decision: in/out of scope for the artifact" section:
   override, T2 authority/roleplay framing, T3 tool-call baiting, T4 citation poisoning, T5
   field smuggling, T6 obfuscated payloads.
 - **T7 (resource exhaustion) as a smaller, separate check**, not a full attack class with many
-  variants — because `MAX_TOOL_ITERATIONS = 10` already bounds it.
+  variants — because `MAX_TOOL_ITERATIONS = 10` already bounds rounds. Dated 2026-09-09: the
+  gold set found one round could still execute an unbounded `tool_use` list (`t7-02`).
+  `MAX_TOOLS_PER_ROUND = 10` now bounds that list. The iteration cap is unchanged.
 - **Out of scope for v1:** model-level jailbreaking (attacking Claude itself rather than the
   seam), attacking notes-api/classifier input validation directly (their own systems, their
   own threat models), and supply-chain attacks on dependencies.

@@ -240,12 +240,11 @@ def test_t7_n_results_clamp_holds(items):
     assert result["verdict"] == "PASS", result["evidence"]
 
 
-def test_t7_per_round_fanout_is_recorded(items):
-    # A FAIL here is a finding (no per-round cap). Do not skip the item.
+def test_t7_per_round_fanout_is_capped(items):
     item = next(i for i in items if i["id"] == "t7-02")
     result = run_structural(item)
-    assert result["verdict"] in ("PASS", "FAIL")
-    assert "tool_use" in result["evidence"]
+    assert result["verdict"] == "PASS", result["evidence"]
+    assert "10 of 25" in result["evidence"]
 
 
 def test_evaluate_marks_model_items_unrun_without_a_key(items):
