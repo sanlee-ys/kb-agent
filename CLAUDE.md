@@ -28,6 +28,12 @@ uv run python scripts/eval_compare.py --baseline eval/baseline.json --candidate 
 uv run python scripts/eval_kind_usage.py   # how often the model passes `kind` to search_kb
 uv run python scripts/eval_kind_usage.py --json eval/kind-run.json
 
+# Tool-seam gold set (ADR-002 T1–T7). Structural items always run. Model items
+# need ANTHROPIC_API_KEY; without a key they are UNRUN, not PASS.
+uv run python scripts/eval_tool_seam.py
+uv run python scripts/eval_tool_seam.py --structural-only
+uv run python scripts/eval_tool_seam.py --json eval/tool_seam_results.json
+
 # Run the agent:
 uv run python app.py                      # Gradio chat UI at http://127.0.0.1:7860
 uv run python agent/agent.py              # CLI chat loop
