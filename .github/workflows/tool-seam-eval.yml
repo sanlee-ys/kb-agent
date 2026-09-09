@@ -2,19 +2,9 @@ name: Tool-seam gold set (model)
 
 # Scores the model half of eval/tool_seam_gold_set.json, including T4 citation
 # poisoning. Spends ANTHROPIC_API_KEY. Keep this job off ci.yml: that path
-# runs on every pull_request to main.
-#
-# The push trigger is branch-scoped to feat/t4-live-eval and must not survive
-# on main. Convert this file to workflow_dispatch only before merge, or drop
-# it from the PR that lands results and docs.
+# runs on every pull_request to main. Owner trigger only. No push. No
+# pull_request.
 on:
-  push:
-    branches: [feat/t4-live-eval]
-    paths:
-      - ".github/workflows/tool-seam-eval.yml"
-      - "scripts/eval_tool_seam.py"
-      - "eval/tool_seam_gold_set.json"
-      - "agent/**"
   workflow_dispatch:
 
 permissions:
@@ -22,7 +12,7 @@ permissions:
 
 jobs:
   eval:
-    # Skip a bot push so a results commit cannot loop this job.
+    # Skip a bot dispatch so a results commit cannot loop this job.
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
