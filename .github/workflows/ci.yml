@@ -97,16 +97,15 @@ jobs:
       - name: Test
         run: uv run pytest
 
-      # ---- Retrieval eval (system/SYS-017 tier 1) --------------------------
-      # The eval RUNS and REPORTS on every push and pull request. It does NOT gate
-      # the merge, and there is deliberately no floors file: SYS-017's rollout
-      # found no existing retrieval number floor-eligible, because every published
-      # figure (including both arms of kb-agent/ADR-010's A/B) was measured on the
-      # author's workstation against a corpus CI could not reconstruct. The
-      # eligible runs are the ones these steps produce — plural, since a floor
-      # needs a run-to-run noise band under it. Tier 2 is a later, separate job.
+      # ---- Retrieval eval (system/SYS-017 tier 2) --------------------------
+      # The eval RUNS on every push and pull request, then the gate step grades
+      # both arms against evals/thresholds.toml. A non-zero exit means retrieval
+      # regressed OR the harness broke (unindexed KB, non-success observation,
+      # missing JSON, n != 27). Floors are measured from CI, never aspirational
+      # — see kb-agent/ADR-013. Tier 2 is half a branch-protection setting; this
+      # workflow cannot declare itself required.
       #
-      # Tier 1's entry condition is corpus provenance: CI must rebuild every input
+      # Corpus provenance (tier 1, ADR-012) still holds: CI rebuilds every input
       # from version control, which is what the clone above is for — 12 of the gold
       # set's 27 queries expect sources under learning-notes/. Nothing paid or
       # non-deterministic runs on this leg: retrieval embeds locally with
@@ -116,17 +115,21 @@ jobs:
       #
       # A configured-but-absent notes dir is a hard error in index.py, so this step
       # fails loudly if the clone did not land rather than building a short index
-      # that the eval below would report as bad retrieval.
+      # that the gate below would report as bad retrieval.
       - name: Build the index
         run: uv run python scripts/index.py
 
-      # Both arms. The unfiltered arm is the headline number; the --kind-filter arm
-      # exercises search_kb's metadata `where` path, which the unfiltered arm cannot
-      # see break. Neither asserts a threshold — a non-zero exit here means the
-      # harness itself failed (unindexed KB, non-success observation), not that
-      # retrieval got worse.
-      - name: Retrieval eval — unfiltered (report only)
-        run: uv run python scripts/eval_retrieval.py
+      # Both arms write JSON the gate consumes. The unfiltered arm is the headline
+      # number; the --kind-filter arm exercises search_kb's metadata `where` path,
+      # which the unfiltered arm cannot see break. The rich table still prints to
+      # the log. eval/ci_*.json is gitignored workspace output; CI never writes a
+      # committed baseline (the eval is free and deterministic, so every PR
+      # re-measures).
+      - name: Retrieval eval — unfiltered
+        run: uv run python scripts/eval_retrieval.py --json eval/ci_unfiltered.json
 
-      - name: Retrieval eval — kind filter (report only)
-        run: uv run python scripts/eval_retrieval.py --kind-filter
+      - name: Retrieval eval — kind filter
+        run: uv run python scripts/eval_retrieval.py --kind-filter --json eval/ci_kind_filter.json
+
+      - name: Retrieval eval gate (SYS-017 tier 2)
+        run: uv run python scripts/eval_gate.py

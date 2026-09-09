@@ -1,0 +1,8 @@
+{
+  "description": "Required span name prefixes for one KBAgent.ask() turn. A captured span tree must contain at least one span whose name starts with each prefix. Renaming a span without updating this file reddens CI.",
+  "required_span_name_prefixes": [
+    "kb_agent.ask",
+    "chat ",
+    "execute_tool "
+  ]
+}

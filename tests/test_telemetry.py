@@ -12,11 +12,14 @@ so no global provider or exporter infrastructure is needed.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from agent.telemetry import _enabled, observation_status, setup_tracing
+
+OTEL_SPAN_CONTRACT = Path(__file__).resolve().parent.parent / "contracts" / "otel-spans.json"
 
 
 @pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", "on"])
@@ -58,15 +61,18 @@ def _block(**kw):
     return SimpleNamespace(**kw)
 
 
-def test_ask_emits_span_tree_with_token_and_tool_attributes(monkeypatch):
+def _capture_ask_spans(monkeypatch):
+    """Run one canned ask() turn against an in-memory span exporter.
+
+    Returns the finished spans. Isolated: a local provider, a fake client, and
+    a fake execute_tool. No API key, no network, no global tracer provider.
+    """
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import SimpleSpanProcessor
     from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
         InMemorySpanExporter,
     )
 
-    # A local provider + in-memory exporter, injected via the tracer accessor —
-    # no global provider is touched, so this test is isolated from every other.
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
     provider.add_span_processor(SimpleSpanProcessor(exporter))
@@ -75,7 +81,6 @@ def test_ask_emits_span_tree_with_token_and_tool_attributes(monkeypatch):
     import agent.agent as agent_mod
 
     monkeypatch.setattr(agent_mod, "get_tracer", lambda: tracer)
-    # Deterministic tool result, no real tool or network.
     monkeypatch.setattr(
         agent_mod,
         "execute_tool",
@@ -84,7 +89,6 @@ def test_ask_emits_span_tree_with_token_and_tool_attributes(monkeypatch):
         ),
     )
 
-    # Turn 1: the model asks for a tool. Turn 2: it returns a final answer.
     first = SimpleNamespace(
         stop_reason="tool_use",
         content=[_block(type="tool_use", name="list_projects", input={}, id="t1")],
@@ -120,10 +124,20 @@ def test_ask_emits_span_tree_with_token_and_tool_attributes(monkeypatch):
 
     agent = KBAgent()
     agent.client = _FakeClient()
-
     assert agent.ask("hello") == "done"
+    return exporter.get_finished_spans()
 
-    spans = exporter.get_finished_spans()
+
+def _required_span_name_prefixes() -> list[str]:
+    data = json.loads(OTEL_SPAN_CONTRACT.read_text(encoding="utf-8"))
+    prefixes = data["required_span_name_prefixes"]
+    assert isinstance(prefixes, list) and prefixes
+    assert all(isinstance(p, str) and p for p in prefixes)
+    return prefixes
+
+
+def test_ask_emits_span_tree_with_token_and_tool_attributes(monkeypatch):
+    spans = _capture_ask_spans(monkeypatch)
     names = [s.name for s in spans]
     # The full tree is present: two model calls, one tool call, one turn.
     assert names.count("chat claude-sonnet-5") == 2
@@ -145,3 +159,13 @@ def test_ask_emits_span_tree_with_token_and_tool_attributes(monkeypatch):
     # The turn span recorded how many loop passes it took (one tool round + final).
     turn_span = next(s for s in spans if s.name == "kb_agent.ask")
     assert turn_span.attributes["kb_agent.loop.iterations"] == 2
+
+
+def test_ask_span_tree_covers_otel_contract(monkeypatch):
+    """Renaming a span without updating contracts/otel-spans.json reddens CI."""
+    names = [s.name for s in _capture_ask_spans(monkeypatch)]
+    for prefix in _required_span_name_prefixes():
+        assert any(name.startswith(prefix) for name in names), (
+            f"captured spans {names!r} miss required prefix {prefix!r} "
+            f"from {OTEL_SPAN_CONTRACT.name}"
+        )

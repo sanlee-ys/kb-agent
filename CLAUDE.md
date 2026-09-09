@@ -23,6 +23,10 @@ uv run python scripts/eval_retrieval.py --hybrid       # same, forcing the hybri
 uv run python scripts/eval_retrieval.py --json eval/baseline.json   # save a run for comparison
 uv run python scripts/eval_compare.py --baseline eval/baseline.json --candidate eval/candidate.json
                                           # paired A/B of two saved runs + harness-health report
+uv run python scripts/eval_gate.py         # grade two --json files against evals/thresholds.toml
+uv run python scripts/eval_gate.py --unfiltered tests/fixtures/eval_gate/pass_unfiltered.json \
+    --kind-filter tests/fixtures/eval_gate/pass_kind_filter.json
+                                          # same gate, against fixture JSON (no retriever)
 
 # Kind-usage eval (needs an API key — 27 model calls per run; no index needed):
 uv run python scripts/eval_kind_usage.py   # how often the model passes `kind` to search_kb
@@ -35,7 +39,7 @@ uv run python scripts/eval_tool_seam.py --structural-only
 uv run python scripts/eval_tool_seam.py --json eval/tool_seam_results.json
 
 # Run the agent:
-uv run python app.py                      # Gradio chat UI at http://127.0.0.1:7860
+uv run python app.py                      # FastAPI + Gradio at http://127.0.0.1:7860 (GET /health)
 uv run python agent/agent.py              # CLI chat loop
 
 # MCP server (stdio; exposes search_kb + list_projects to any MCP host):
@@ -125,9 +129,11 @@ projects.yaml → ingest.py → kb/*.md → index.py → chroma_db/ → tools.se
    and while `stop_reason == "tool_use"` it executes the requested tools, feeds
    `tool_result` blocks back, and loops (capped at `MAX_TOOL_ITERATIONS = 10`). The
    full assistant turn (including `tool_use` blocks) is preserved in `self.messages`.
-5. **`app.py`** wraps `KBAgent` in a `gr.ChatInterface`. Gradio owns history; each turn
-   rebuilds a fresh `KBAgent` from the `{"role","content"}` history (text answers only —
-   per-turn tool calls are not replayed).
+5. **`app.py`** wraps `KBAgent` in a `gr.ChatInterface` mounted on a FastAPI app.
+   `GET /health` returns `{"status":"ok"}` and does not construct a `KBAgent` or open
+   ChromaDB. Chat stays at `/`. Gradio owns history; each turn rebuilds a fresh
+   `KBAgent` from the `{"role","content"}` history (text answers only — per-turn tool
+   calls are not replayed).
 6. **`mcp_server/server.py`** is a **second transport over the same tools**, not a second
    implementation: an `MCPServer` server (stdio) that exposes the two *local* tools,
    `search_kb` and `list_projects`, to any MCP host. It calls `agent/tools.py` and returns
@@ -173,12 +179,14 @@ against — so the drift risk is visible in the report, but the fix is still by 
   rather than by omission. A note's `source` is `<dir name>/<file>.md`, so **the directory must be
   named `learning-notes`** or the gold set won't match it
   ([ADR-012](decisions/ADR-012-reconstruct-the-notes-corpus-in-ci.md), `system/SYS-017` §3).
-- **CI runs the retrieval eval, and does not gate on it** (`SYS-017` tier 1). `ci.yml` clones
-  `learning-notes`, builds the index against it, and runs both `eval_retrieval.py` arms as
-  **reporting** steps — there is no floors file and no threshold, so a non-zero exit there means the
-  harness broke, not that retrieval regressed. Don't add a floor from a number measured on the
-  workstation: floors need several CI-measured runs for a noise band (that's tier 2, and it's a
-  separate job). `eval_kind_usage.py` spends API budget and stays out of PR CI.
+- **CI gates the retrieval eval** (`SYS-017` tier 2, [ADR-013](decisions/ADR-013-evals-ci-tier-2.md)).
+  `ci.yml` clones `learning-notes`, builds the index, writes both `eval_retrieval.py` arms to
+  JSON, and runs `scripts/eval_gate.py` against `evals/thresholds.toml`. A non-zero exit means
+  retrieval regressed or the harness broke (missing JSON, malformed run, `n != 27`). Floors are
+  measured from CI (operating point 0.963, two-miss margin), never from a workstation number
+  and never aspirational. Do not flip a floor without citing a new CI run. Branch protection
+  is the other half of tier 2 and is not set from this repo's files. `eval_kind_usage.py`
+  spends API budget and stays out of PR CI.
 - **`search_kb` ships dense-only.** A hybrid dense+BM25 path (RRF, k=60) is implemented and
   live behind `tools.HYBRID_RETRIEVAL`, but the default is `False` because the gold-set A/B
   said hybrid does not earn it: identical MRR, worse recall@1, worse on every `--kind-filter`

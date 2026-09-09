@@ -74,10 +74,12 @@ cp -n .env.example .env
    uv run python scripts/index.py
    ```
 
-3. Ask questions in the browser. The UI opens at http://127.0.0.1:7860:
+3. Ask questions in the browser. The UI opens at http://127.0.0.1:7860.
+   `GET /health` returns `{"status":"ok"}` and does not run the agent:
 
    ```bash
    uv run python app.py
+   curl http://127.0.0.1:7860/health
    ```
 
    Or ask in the terminal:
@@ -168,17 +170,43 @@ uv run python scripts/eval_retrieval.py --json eval/baseline.json
 uv run python scripts/eval_compare.py --baseline eval/baseline.json --candidate eval/candidate.json
 ```
 
+CI reconstructs the notes corpus, runs both arms, and grades
+`summary.overall` against [`evals/thresholds.toml`](evals/thresholds.toml)
+([ADR-013](decisions/ADR-013-evals-ci-tier-2.md), `system/SYS-017` tier 2).
+A merge fails when a floor is breached, when `n` is not 27, or when the
+harness breaks.
+
+Current floors (overall, n=27). Operating point 0.963. Margin: two misses.
+
+| Arm | recall@1 | recall@5 | MRR |
+| --- | --- | --- | --- |
+| unfiltered | 0.88 | 0.92 | 0.90 |
+| kind filter | 0.88 | 0.92 | 0.90 |
+
+```bash
+uv run python scripts/eval_gate.py --unfiltered tests/fixtures/eval_gate/pass_unfiltered.json \
+    --kind-filter tests/fixtures/eval_gate/pass_kind_filter.json
+```
+
 These numbers are dated workstation measurements from 2026-07-17 on a
 325-chunk index. They are not floors.
 
 - Unfiltered: recall@5 **0.926**, MRR **0.781**
 - Kind filter: recall@3 **1.000**, MRR **0.920**
 
-CI reconstructs the notes corpus and runs both arms as a report. A merge does
-not depend on the values.
-
 The set at [`eval/compositional_set.yaml`](eval/compositional_set.yaml) exists
 and has no harness yet.
+
+## Docker
+
+The serving image wraps the Gradio UI and `GET /health`. Health does not need
+`chroma_db` or an API key.
+
+```bash
+docker build -t kb-agent .
+docker run --rm -p 8080:8080 kb-agent
+curl http://127.0.0.1:8080/health
+```
 
 ## Observability
 
@@ -195,7 +223,9 @@ The first command writes spans to stderr. The second also sends spans to an
 OTLP collector.
 
 Each turn emits `kb_agent.ask` → one `chat <model>` per model call → one
-`execute_tool <name>` per tool call:
+`execute_tool <name>` per tool call. [`contracts/otel-spans.json`](contracts/otel-spans.json)
+lists the required name prefixes. A rename without an update to that file
+fails CI.
 
 | Span | Key attributes |
 | --- | --- |

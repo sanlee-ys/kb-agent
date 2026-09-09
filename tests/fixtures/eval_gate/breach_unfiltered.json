@@ -1,0 +1,12 @@
+{
+  "summary": {
+    "overall": {
+      "n": 27,
+      "recall@1": 0.70,
+      "recall@3": 0.85,
+      "recall@5": 0.90,
+      "mrr": 0.80
+    }
+  },
+  "results": []
+}
