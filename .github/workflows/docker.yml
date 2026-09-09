@@ -1,0 +1,75 @@
+name: docker
+
+# Builds the serving image and smoke-tests GET /health.
+#
+# Why a separate workflow instead of a job in ci.yml: path filters in GitHub
+# Actions are workflow-level, not job-level. Keeping this in its own file is the
+# only way to skip the image build on the many changes that cannot affect it.
+# pytest already covers agent imports; this workflow proves the Dockerfile still
+# boots and that /health answers without chroma_db.
+on:
+  push:
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "app.py"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/docker.yml"
+  pull_request:
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "app.py"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/docker.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build image
+        run: docker build -t kb-agent:ci .
+
+      # No ANTHROPIC_API_KEY and no chroma_db: /health must boot without either.
+      - name: Start container
+        run: docker run -d --name kb-agent-smoke -p 8080:8080 kb-agent:ci
+
+      - name: Wait for readiness and assert /health returns 200
+        run: |
+          for i in $(seq 1 60); do
+            if ! docker ps --filter name=kb-agent-smoke --filter status=running \
+                 --format '{{.Names}}' | grep -q kb-agent-smoke; then
+              echo "Container is no longer running after ${i}s."
+              exit 1
+            fi
+            code=$(curl -s -o /tmp/health.json -w '%{http_code}' http://localhost:8080/health || true)
+            if [ "$code" = "200" ]; then
+              echo "GET /health -> 200"
+              cat /tmp/health.json
+              grep -q '"status":"ok"' /tmp/health.json
+              exit 0
+            fi
+            echo "attempt ${i}: /health returned '${code}', retrying..."
+            sleep 1
+          done
+          echo "Timed out waiting for a 200 from /health."
+          exit 1
+
+      - name: Container logs (on failure)
+        if: failure()
+        run: docker logs kb-agent-smoke || true
+
+      - name: Stop container
+        if: always()
+        run: docker rm -f kb-agent-smoke || true

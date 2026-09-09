@@ -3,6 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-08-02
 **Deciders:** San Lee
+**Supersession:** [ADR-013](ADR-013-evals-ci-tier-2.md) supersedes §4 (no floors, report only) as of 2026-09-09. Corpus reconstruction in §1–§3 still stands.
 
 ---
 

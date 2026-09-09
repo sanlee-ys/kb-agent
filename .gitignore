@@ -11,3 +11,6 @@ htmlcov/
 .pytest_cache/
 
 graphify-out/
+
+# Ephemeral SYS-017 tier 2 gate inputs (CI re-measures every PR; not a baseline).
+eval/ci_*.json

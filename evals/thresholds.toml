@@ -1,0 +1,34 @@
+# Measured floors for the SYS-017 tier 2 retrieval gate (scripts/eval_gate.py).
+# Parsed with Python's stdlib tomllib. Quote keys that contain `@`.
+#
+# These are measured floors, never aspirational. They sit below the CURRENT
+# operating point, not the obsolete 2026-08-02 unfiltered recall@1 of 0.741.
+#
+# Eligible CI measurements (overall slice, n=27):
+#   2026-08-02 first CI run (ADR-012, run 30772268815):
+#     unfiltered  recall@1 0.741 / recall@5 0.926 / MRR 0.813
+#     kind_filter recall@1 0.963 / recall@5 1.000 / MRR 0.981
+#   2026-09-09 latest CI (run 34365627772):
+#     BOTH arms   recall@1 0.963 / recall@5 1.000 / MRR 0.981
+#     (unfiltered improved after the 2026-08-18 parent-header change)
+#
+# Operating point: 0.963. Margin: two gold-set misses (2/27 ≈ 0.074).
+#   recall@1: 0.963 - 0.074 ≈ 0.889 -> 0.88
+#   recall@5: 1.000 - 0.074 ≈ 0.926 -> 0.92
+#   mrr:      0.981 - 0.074 ≈ 0.907 -> 0.90
+#
+# JSON keys from summarize() in scripts/eval_retrieval.py are recall@1,
+# recall@5, mrr, n under the overall slice. n is an exact match, not a floor:
+# a partial snapshot is a fail (SYS-017 corollary).
+
+[unfiltered]
+n = 27
+"recall@1" = 0.88
+"recall@5" = 0.92
+mrr = 0.90
+
+[kind_filter]
+n = 27
+"recall@1" = 0.88
+"recall@5" = 0.92
+mrr = 0.90
