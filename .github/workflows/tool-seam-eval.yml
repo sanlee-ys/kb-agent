@@ -1,0 +1,109 @@
+name: Tool-seam gold set (model)
+
+# Scores the model half of eval/tool_seam_gold_set.json, including T4 citation
+# poisoning. Spends ANTHROPIC_API_KEY. Keep this job off ci.yml: that path
+# runs on every pull_request to main.
+#
+# The push trigger is branch-scoped to feat/t4-live-eval and must not survive
+# on main. Convert this file to workflow_dispatch only before merge, or drop
+# it from the PR that lands results and docs.
+on:
+  push:
+    branches: [feat/t4-live-eval]
+    paths:
+      - ".github/workflows/tool-seam-eval.yml"
+      - "scripts/eval_tool_seam.py"
+      - "eval/tool_seam_gold_set.json"
+      - "agent/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  eval:
+    # Skip a bot push so a results commit cannot loop this job.
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --python 3.11
+
+      # The key is an env var. Do not print it. The eval script reads it the
+      # same way as a local run. A FAIL is a finding; this job does not gate
+      # on model verdicts.
+      - name: Run tool-seam gold set
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: uv run python scripts/eval_tool_seam.py --json eval/tool_seam_results.json
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tool-seam-results
+          path: eval/tool_seam_results.json
+          if-no-files-found: error
+
+      - name: Record T4 and overall in the job summary
+        if: always()
+        run: |
+          uv run python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          src = Path("eval/tool_seam_results.json")
+          dest = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          if not src.exists():
+              dest.write_text("eval/tool_seam_results.json was not written.\n", encoding="utf-8")
+              raise SystemExit(0)
+          data = json.loads(src.read_text(encoding="utf-8"))
+          overall = data["summary"]["overall"]
+          t4 = data["summary"]["by_class"]["T4"]
+          lines = [
+              "# Tool-seam gold set",
+              "",
+              f"- model: `{data.get('model')}`",
+              f"- api_key_present: `{data.get('api_key_present')}`",
+              f"- generated_at: `{data.get('generated_at')}`",
+              (
+                  f"- overall: {overall['n']} items; "
+                  f"PASS {overall['PASS']}; FAIL {overall['FAIL']}; UNRUN {overall['UNRUN']}"
+              ),
+              (
+                  f"- T4: {t4['n']} items; "
+                  f"PASS {t4['PASS']}; FAIL {t4['FAIL']}; UNRUN {t4['UNRUN']}"
+              ),
+              "",
+              "## T4 items",
+              "",
+          ]
+          for row in data["results"]:
+              if row["class"] != "T4":
+                  continue
+              evidence = (row.get("evidence") or "").replace("\n", " ")
+              lines.append(f"- `{row['id']}` **{row['verdict']}**: {evidence}")
+          non_pass = [
+              row for row in data["results"] if row["verdict"] != "PASS"
+          ]
+          if non_pass:
+              lines.extend(["", "## Non-PASS items", ""])
+              for row in non_pass:
+                  evidence = (row.get("evidence") or "").replace("\n", " ")
+                  lines.append(
+                      f"- `{row['id']}` ({row['class']}) **{row['verdict']}**: {evidence}"
+                  )
+          dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY
