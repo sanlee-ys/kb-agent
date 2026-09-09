@@ -31,9 +31,10 @@ accept many new misses against the current index. That number is a dated measure
 the bar.
 
 SYS-017 also says tier 2 is half a branch-protection setting. A workflow cannot declare
-itself required. This record ships the floors file, the gate script, and the CI step. The
-parent session sets the required check after merge. Until that setting exists, the mechanism
-is in place and the effect is still a report.
+itself required. This record ships the floors file, the gate script, and the CI step.
+The required context on `main` is already `test` (and `Analyze (Python)`). The gate is
+a step inside `test`, so a floor breach fails that required check. No second context
+was added.
 
 ## Decision
 
@@ -78,13 +79,12 @@ the harness broke.
 
 `scripts/eval_kind_usage.py` stays out of PR CI. It spends API budget.
 
-### 4. Branch protection is a separate half, and this change does not set it
+### 4. The required check is the existing `test` job
 
-SYS-017: "Tier 2 is half a branch-protection setting." This ADR does not edit GitHub
-branch protection. The parent session adds the required check after merge. Until then,
-a red gate step still fails the `test` job on push and pull_request. A required-check
-setting is what stops an admin override and what SYS-017 uses to place a repo at tier 2
-from outside.
+SYS-017: "Tier 2 is half a branch-protection setting." `main` already requires
+`test` and `Analyze (Python)`. The gate is a step inside `test`. A floor breach
+fails that required job. No second context was added. `enforce_admins` is
+already on.
 
 ## Downstream surfaces
 
