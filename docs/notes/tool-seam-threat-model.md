@@ -209,3 +209,19 @@ Build the attack gold set — concrete injected-content samples per class T1–T
 (plus the T7 check) — run them through the agent, and record what held and what
 didn't. Expect T4 (citation poisoning) to be where the real work is, since the
 structural bounds already blunt T3 and T7.
+
+## Re-verified 2026-09-09 (Phase 2)
+
+Re-read `agent/tools.py` and `agent/agent.py` before the gold set was built.
+Load-bearing claims still hold: `_is_allowed_host`, `_validate_endpoint`,
+`MAX_TOOL_ITERATIONS = 10`, no write tool, host not an LLM parameter,
+`tool_choice` never set. Line numbers in the 2026-07-02 body are still stale.
+Symbol names are the durable references.
+
+Closed since the ADR-002 drift note of 2026-07-18: `_is_allowed_host` now
+points at this file. `_search_kb_tool_result_content` is still the citation
+path that T4 and T5 actually exercise.
+
+Decisions from this analysis live in
+[`ADR-002`](../../decisions/ADR-002-agent-tool-seam-threat-model.md).
+Phase 2 results: [`tool-seam-gold-set.md`](tool-seam-gold-set.md).

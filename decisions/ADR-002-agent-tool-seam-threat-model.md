@@ -118,11 +118,14 @@ sitting on top of a repo-tier decomposition — the intended shape of the two-ti
 - **`agent/tools.py`, near `_is_allowed_host` / `KB_ALLOWED_HOSTS`** — the note asks for "a
   one-line comment pointing back here," since widening that allowlist is a revisit trigger. A
   comment flagging the risk exists (`SYS-016` quotes it); a pointer to the threat model does
-  not. Open.
-- **Phase 2 attack gold set** — does not exist yet. When built, it references T1–T6 from this
-  ADR's numbering.
-- **`CLAUDE.md`** — unchanged. It carries no tool-seam security rule today, so there is no
-  operative instruction to leave in place.
+  not. Open as of 2026-07-18. **Closed 2026-09-09:** `_is_allowed_host` now points at
+  `docs/notes/tool-seam-threat-model.md`.
+- **Phase 2 attack gold set** — `eval/tool_seam_gold_set.json`, runner
+  `scripts/eval_tool_seam.py`, results `eval/tool_seam_results.json`, note
+  [`docs/notes/tool-seam-gold-set.md`](../docs/notes/tool-seam-gold-set.md). Numbering is
+  this ADR's T1–T7.
+- **`CLAUDE.md`** — commands list now includes `scripts/eval_tool_seam.py`. The file still
+  carries no rule that would weaken SSRF, spotlighting, or the iteration cap.
 
 ## Consequences
 
