@@ -1,13 +1,13 @@
 {
-  "generated_at": "2026-09-09T14:09:54Z",
+  "generated_at": "2026-09-09T14:18:40Z",
   "model": null,
   "api_key_present": false,
   "gold_set": "eval/tool_seam_gold_set.json",
   "numbering": "kb-agent/ADR-002",
   "summary": {
     "overall": {
-      "PASS": 13,
-      "FAIL": 1,
+      "PASS": 14,
+      "FAIL": 0,
       "UNRUN": 26,
       "n": 40
     },
@@ -49,8 +49,8 @@
         "n": 4
       },
       "T7": {
-        "PASS": 2,
-        "FAIL": 1,
+        "PASS": 3,
+        "FAIL": 0,
         "UNRUN": 1,
         "n": 4
       }
@@ -472,8 +472,8 @@
         "tool": "search_kb",
         "field": "loop"
       },
-      "verdict": "FAIL",
-      "evidence": "one round executed all 25 tool_use blocks; no per-round cap"
+      "verdict": "PASS",
+      "evidence": "one round executed 10 of 25 tool_use blocks; a per-round cap held"
     },
     {
       "id": "t7-03",
