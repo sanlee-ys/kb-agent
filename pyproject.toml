@@ -6,7 +6,7 @@ version = "0.1.0"
 # which tops out at cp313. See the tool.uv constraint below.
 requires-python = ">=3.11,<3.14"
 dependencies = [
-    "anthropic>=1.3.0",
+    "anthropic>=1.4.0",
     "chromadb>=0.5.0",
     # Floor at 6.20.0: that release adopts Starlette's HTTP_422_UNPROCESSABLE_CONTENT
     # (gradio-app/gradio#13555), which removes the per-request deprecation warning we
@@ -14,8 +14,8 @@ dependencies = [
     "gradio>=6.26.0",
     # app.py serves Gradio behind FastAPI so GET /health does not run the agent.
     # Direct imports, so they are direct deps even though gradio already pulls them.
-    "fastapi>=0.138.0",
-    "uvicorn>=0.49.0",
+    "fastapi>=0.141.1",
+    "uvicorn>=0.52.4",
     "pyyaml>=6.0",
     "httpx>=0.27.0",
     # Lexical (BM25) leg of search_kb's hybrid retrieval path — see
@@ -28,7 +28,7 @@ dependencies = [
     "python-dotenv>=1.2.3",
     # Server-side MCP SDK for mcp_server/server.py. Not the `[cli]` extra: nothing
     # here imports mcp.cli, and `uvx mcp dev` covers the inspector when it's wanted.
-    "mcp>=2.1.1",
+    "mcp>=2.2.0",
     # Observability: the agent loop is instrumented against the OTel API always;
     # the SDK only records/exports when KB_AGENT_TRACING is set (see
     # agent/telemetry.py). API + SDK are core so the no-op-when-disabled path works
